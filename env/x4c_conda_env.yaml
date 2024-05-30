@@ -1,0 +1,21 @@
+name: adf_x4c
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pyyaml=6.0
+  - scipy=1.10.0
+  - cartopy=0.21.1
+  - netcdf4=1.6.2
+  - xarray=2023.1.0
+  - matplotlib=3.6.3
+  - pandas=1.5.3
+  - pint=0.16   #GeoCAT doesn't work with newer versions
+  - xskillscore=0.0.5
+  - geocat-comp=2022.08.0
+  - xesmf
+  - pop-tools
+  - python=3.11
+  - pip:
+    - x4c
+prefix: /glade/work/$USER/conda-envs/adf_x4c
