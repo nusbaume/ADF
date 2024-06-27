@@ -125,22 +125,6 @@ def create_x4c_climos(adf, clobber=False, search=None):
         input_location  = Path(input_ts_locs[case_idx])
         output_location = Path(output_locs[case_idx])
 
-        #Create symbolic link with path needed by x4c:
-        x4c_input_loc = Path(os.path.join(input_location, "x4c_ts", "atm", "proc", "tseries"))
-        x4c_input_loc.mkdir(parents=True, exist_ok=True)
-        os.symlink(input_location, os.path.join(x4c_input_loc, "month_1"), target_is_directory=True)
-        #x4c_input_loc.symlink_to(input_location)
-
-        #Create x4c timeseries object:
-        x4c_ts_dirpath = Path(os.path.join(input_location, "x4c_ts"))
-        x4c_case = x4c.Timeseries(x4c_ts_dirpath)
-
-        print(x4c_case)
-        sys.exit(0)
-
-        #Whether to overwrite existing climo files
-        clobber = overwrite[case_idx]
-
         #Check that time series input directory actually exists:
         if not input_location.is_dir():
             errmsg = f"Time series directory '{input_ts_locs}' not found.  Script is exiting."
@@ -151,47 +135,29 @@ def create_x4c_climos(adf, clobber=False, search=None):
             print(f"\t    {output_location} not found, making new directory")
             output_location.mkdir(parents=True)
 
-        #Time series file search
-        if search is None:
-            search = "{CASE}*.{VARIABLE}.*nc"  # NOTE: maybe we should not care about the file extension part at all, but check file type later?
+        #Create symbolic link with path needed by x4c:
+        x4c_input_loc = Path(os.path.join(input_location, "x4c_ts", "atm", "proc", "tseries"))
+        x4c_input_loc.mkdir(parents=True, exist_ok=True)
 
-        #Check model year bounds:
-        syr, eyr = check_averaging_interval(start_year[case_idx], end_year[case_idx])
+        tmp_link = os.path.join(x4c_input_loc, "_tmp_dir")
+        target_link = os.path.join(x4c_input_loc, "month_1")
+        os.symlink(input_location, tmp_link, target_is_directory=True)
+        os.rename(tmp_link, target_link)
 
-        #Loop over CAM output variables:
-        list_of_arguments = []
-        for var in var_list:
+        #Create x4c timeseries object:
+        x4c_ts_dirpath = Path(os.path.join(input_location, "x4c_ts"))
+        x4c_case = x4c.Timeseries(x4c_ts_dirpath)
 
-            # Create name of climatology output file (which includes the full path)
-            # and check whether it is there (don't do computation if we don't want to overwrite):
-            output_file = output_location / f"{case_name}_{var}_climo.nc"
-            if (not clobber) and (output_file.is_file()):
-                print(f"\t    INFO: Found climo file and clobber is False, so skipping {var} and moving to next variable.")
-                continue
-            elif (clobber) and (output_file.is_file()):
-                print(f"\t    INFO: Climo file exists for {var}, but clobber is {clobber}, so will OVERWRITE it.")
-
-            #Create list of time series files present for variable:
-            ts_filenames = search.format(CASE=case_name, VARIABLE=var)
-            ts_files = sorted(list(input_location.glob(ts_filenames)))
-
-            #If no files exist, try to move to next variable. --> Means we can not proceed with this variable, and it'll be problematic later.
-            if not ts_files:
-                errmsg = "Time series files for variable '{}' not found.  Script will continue to next variable.".format(var)
-                print(f"The input location searched was: {input_location}. The glob pattern was {ts_filenames}.")
-                #  end_diag_script(errmsg) # Previously we would kill the run here.
-                warnings.warn(errmsg)
-                continue
-
-            list_of_arguments.append((ts_files, syr, eyr, output_file))
-
-
-        #End of var_list loop
-        #--------------------
-
-        # Parallelize the computation using multiprocessing pool:
-        with mp.Pool(processes=number_of_cpu) as p:
-            result = p.starmap(process_variable, list_of_arguments)
+        #Generate climatology file:
+        x4c_case.gen_climo(
+             output_dirpath=output_location,
+             casename=case_name,
+             timespan=(start_year[case_idx], end_year[case_idx]),
+             comp='atm',
+             nproc=number_of_cpu,
+             overwrite=overwrite[case_idx],
+             regrid=False
+             )
 
     #End of model case loop
     #----------------------
@@ -199,82 +165,7 @@ def create_x4c_climos(adf, clobber=False, search=None):
     #Notify user that script has ended:
     print("  ...CAM climatologies have been calculated successfully.")
 
+##############
+#End of script
+##############
 
-#
-# Local functions
-#
-def process_variable(ts_files, syr, eyr, output_file):
-    '''
-    Compute and save the climatology file.
-    '''
-    #Read in files via xarray (xr):
-    if len(ts_files) == 1:
-        cam_ts_data = xr.open_dataset(ts_files[0], decode_times=True)
-    else:
-        cam_ts_data = xr.open_mfdataset(ts_files, decode_times=True, combine='by_coords')
-    #Average time dimension over time bounds, if bounds exist:
-    if 'time_bnds' in cam_ts_data:
-        time = cam_ts_data['time']
-        # NOTE: force `load` here b/c if dask & time is cftime, throws a NotImplementedError:
-        time = xr.DataArray(cam_ts_data['time_bnds'].load().mean(dim='nbnd').values, dims=time.dims, attrs=time.attrs)
-        cam_ts_data['time'] = time
-        cam_ts_data.assign_coords(time=time)
-        cam_ts_data = xr.decode_cf(cam_ts_data)
-    #Extract data subset using provided year bounds:
-    cam_ts_data = cam_ts_data.sel(time=slice(syr, eyr))
-    #Group time series values by month, and average those months together:
-    cam_climo_data = cam_ts_data.groupby('time.month').mean(dim='time')
-    #Rename "months" to "time":
-    cam_climo_data = cam_climo_data.rename({'month':'time'})
-    #Set netCDF encoding method (deal with getting non-nan fill values):
-    enc_dv = {xname: {'_FillValue': None, 'zlib': True, 'complevel': 4} for xname in cam_climo_data.data_vars}
-    enc_c  = {xname: {'_FillValue': None} for xname in cam_climo_data.coords}
-    enc    = {**enc_c, **enc_dv}
-
-    #Output variable climatology to NetCDF-4 file:
-    cam_climo_data.to_netcdf(output_file, format='NETCDF4', encoding=enc)
-    return 1  # All funcs return something. Could do error checking with this if needed.
-
-
-def check_averaging_interval(syear_in, eyear_in):
-    #For now, make sure year inputs are integers or None,
-    #in order to allow for the zero additions done below:
-    if syear_in:
-        check_syr = int(syear_in)
-    else:
-        check_syr = None
-    #end if
-
-    if eyear_in:
-        check_eyr = int(eyear_in)
-    else:
-        check_eyr = None
-
-    #Need to add zeros if year values aren't long enough:
-    #------------------
-    #start year:
-    if check_syr:
-        assert check_syr >= 0, 'Sorry, values must be positive whole numbers.'
-        try:
-            syr = f"{check_syr:04d}"
-        except:
-            errmsg = " 'start_year' values must be positive whole numbers"
-            errmsg += f"not '{syear_in}'."
-            raise AdfError(errmsg)
-    else:
-        syr = None
-    #End if
-
-    #end year:
-    if check_eyr:
-        assert check_eyr >= 0, 'Sorry, end_year values must be positive whole numbers.'
-        try:
-            eyr = f"{check_eyr:04d}"
-        except:
-            errmsg = " 'end_year' values must be positive whole numbers"
-            errmsg += f"not '{eyear_in}'."
-            raise AdfError(errmsg)
-    else:
-        eyr = None
-    #End if
-    return syr, eyr
