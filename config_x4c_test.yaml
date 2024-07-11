@@ -68,7 +68,7 @@ diag_basic_info:
     # Only affects timeseries as everything else uses timeseries
     # Leave off trailing '.'
     #Default: cam.h0
-    hist_str: cam.h0
+    hist_str: cam.h0a
 
     #Is this a model vs observations comparison?
     #If "false" or missing, then a model-model comparison is assumed:
@@ -139,7 +139,7 @@ diag_cam_climo:
     cam_overwrite_climo: false
 
     #Name of CAM case (or CAM run name):
-    cam_case_name: b.e23_alpha16g.BLT1850.ne30_t232_L32.082b
+    cam_case_name: eaton_ctl_fmthist_01
 
     #Case nickname
     #NOTE: if nickname starts with '0' - nickname must be in quotes!
@@ -149,7 +149,7 @@ diag_cam_climo:
 
     #Location of CAM history (h0) files:
     #Example test files
-    cam_hist_loc: /glade/derecho/scratch/hannay/archive/b.e23_alpha16g.BLT1850.ne30_t232_L32.082b/atm/hist
+    cam_hist_loc: /glade/derecho/scratch/brianpm/archive/eaton_ctl_fmthist_01/atm/hist
 
     #Location of CAM climatologies (to be created and then used by this script)
     cam_climo_loc: /glade/derecho/scratch/${user}/ADF/${diag_cam_climo.cam_case_name}/climo
@@ -157,12 +157,12 @@ diag_cam_climo:
     #model year when time series files should start:
     #Note:  Leaving this entry blank will make time series
     #       start at earliest available year.
-    start_year: 5
+    start_year: 1996
 
     #model year when time series files should end:
     #Note:  Leaving this entry blank will make time series
     #       end at latest available year.
-    end_year: 10
+    end_year: 2001
 
     #Do time series files exist?
     #If True, then diagnostics assumes that model files are already time series.
@@ -412,7 +412,7 @@ plotting_scripts:
     - meridional_mean
     - polar_map
     - cam_taylor_diagram
-    - qbo
+#    - qbo
     #- tape_recorder
     #- tem
     #- regional_map_multicase #To use this please un-comment and fill-out

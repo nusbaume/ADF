@@ -146,17 +146,18 @@ def create_x4c_climos(adf, clobber=False, search=None):
 
         #Create x4c timeseries object:
         x4c_ts_dirpath = Path(os.path.join(input_location, "x4c_ts"))
-        x4c_case = x4c.Timeseries(x4c_ts_dirpath)
+        x4c_case = x4c.Timeseries(x4c_ts_dirpath, grid_dict={'atm': 'ne30pg3'},
+                                  casename=case_name)
 
         #Generate climatology file:
         x4c_case.gen_climo(
              output_dirpath=output_location,
-             casename=case_name,
              timespan=(start_year[case_idx], end_year[case_idx]),
              comp='atm',
              nproc=number_of_cpu,
-             overwrite=overwrite[case_idx],
-             regrid=False
+             #overwrite=overwrite[case_idx],
+             overwrite=True,
+             regrid=True
              )
 
     #End of model case loop
