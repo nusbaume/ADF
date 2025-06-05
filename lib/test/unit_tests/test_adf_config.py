@@ -25,7 +25,7 @@ from adf_config import AdfConfig
 from adf_base import AdfError
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#Main AdfBase testing routine, used when script is run directly
+#Main AdfConfig testing routine, used when script is run directly
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 class AdfConfigTestRoutine(unittest.TestCase):
