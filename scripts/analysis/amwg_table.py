@@ -204,7 +204,7 @@ def amwg_table(adf):
 
             #Create list of time series files present for variable:
             ts_filenames = f'{case_name}.*.{var}.*nc'
-            ts_files = sorted(input_location.glob(ts_filenames))
+            ts_files = utils.find_ts_files(input_location, ts_filenames)
 
             # If no files exist, try to move to next variable. --> Means we can not proceed with this variable, and it'll be problematic later.
             if not ts_files:

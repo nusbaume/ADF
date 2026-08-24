@@ -1,7 +1,7 @@
-import glob
-import os
 from pathlib import Path
 import xarray as xr
+
+import adf_utils as utils
 
 
 def check_derive(self, res, var, case_name, diag_var_list, constit_dict, hist_file_ds, hist0):
@@ -171,8 +171,9 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
     constit_files = []
     for constit in constit_list:
         # Check if the constituent file is present, if so add it to list
-        if glob.glob(os.path.join(ts_dir, f"*.{constit}.*.nc")):
-            constit_files.append(glob.glob(os.path.join(ts_dir, f"*.{constit}.*"))[0])
+        constit_matches = utils.find_ts_files(ts_dir, f"*.{constit}.*.nc")
+        if constit_matches:
+            constit_files.append(str(constit_matches[0]))
     # End for
 
     # Check if all the necessary constituent files were found
@@ -241,7 +242,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
         azl = res.get("aerosol_zonal_list", [])
         if var in azl:
             # Check if PMID is in file:
-            ds_pmid = self.data.load_dataset(glob.glob(os.path.join(ts_dir, "*.PMID.*"))[0])
+            ds_pmid = self.data.load_dataset(utils.find_ts_files(ts_dir, "*.PMID.*")[0])
             if not ds_pmid:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'PMID' is in the CAM "
@@ -252,7 +253,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
                 self.debug_log(dmsg)
 
             # Check if T is in file:
-            ds_t = self.data.load_dataset(glob.glob(os.path.join(ts_dir, "*.T.*"))[0])
+            ds_t = self.data.load_dataset(utils.find_ts_files(ts_dir, "*.T.*")[0])
             if not ds_t:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'T' is in the CAM "

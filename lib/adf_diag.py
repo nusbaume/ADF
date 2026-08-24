@@ -323,10 +323,66 @@ class AdfDiag(AdfWeb):
 
     #########
 
+    def get_ts_case_config(self, baseline=False):
+        """
+        Return the per-case configuration used by the time series step.
+
+        Gathered in one place so that the built-in ("adf") and the GenTS back
+        ends cannot drift apart in how they read the config file.  Every value
+        is a list with one entry per case, baseline included.
+        """
+
+        # Check if baseline time-series files are being created:
+        if baseline:
+            # Use baseline settings, while converting them all to lists:
+            return {
+                "case_names": [self.get_baseline_info("cam_case_name", required=True)],
+                "cam_ts_done": [self.get_baseline_info("cam_ts_done")],
+                "cam_hist_locs": [self.get_baseline_info("cam_hist_loc")],
+                "ts_dirs": [self.get_baseline_info("cam_ts_loc", required=True)],
+                "overwrite_ts": [self.get_baseline_info("cam_overwrite_ts")],
+                "start_years": [self.climo_yrs["syear_baseline"]],
+                "end_years": [self.climo_yrs["eyear_baseline"]],
+                "case_type_string": "baseline",
+                "hist_str_list": [self.hist_string["base_hist_str"]],
+            }
+        # End if
+
+        # Use test case settings, which are already lists:
+        return {
+            "case_names": self.get_cam_info("cam_case_name", required=True),
+            "cam_ts_done": self.get_cam_info("cam_ts_done"),
+            "cam_hist_locs": self.get_cam_info("cam_hist_loc"),
+            "ts_dirs": self.get_cam_info("cam_ts_loc", required=True),
+            "overwrite_ts": self.get_cam_info("cam_overwrite_ts"),
+            "start_years": self.climo_yrs["syears"],
+            "end_years": self.climo_yrs["eyears"],
+            "case_type_string": "case",
+            "hist_str_list": self.hist_string["test_hist_str"],
+        }
+
+    #########
+
     def create_time_series(self, baseline=False):
         """
         Generate time series versions of the CAM history file data.
+
+        The 'ts_tool' config variable selects which back end does the work:
+        'adf' (the default) uses the ncrcat path below, 'gents' hands off to
+        the GenTS package via lib/adf_gents.py.
         """
+
+        # Hand off to GenTS if that back end was requested:
+        ts_tool = self.get_basic_info("ts_tool") or "adf"
+        if str(ts_tool).lower() == "gents":
+            from adf_gents import create_time_series_gents
+            return create_time_series_gents(self, baseline=baseline)
+        # End if
+        if str(ts_tool).lower() != "adf":
+            emsg = f"Unknown 'ts_tool' value '{ts_tool}'."
+            emsg += " Please use either 'adf' or 'gents'."
+            self.end_diag_fail(emsg)
+        # End if
 
         #Notify user that script has started:
         msg = "\n  Calculating CAM time series..."
@@ -343,31 +399,17 @@ class AdfDiag(AdfWeb):
             return subprocess.run(cmd, shell=False)
         # End def
 
-        # Check if baseline time-series files are being created:
-        if baseline:
-            # Use baseline settings, while converting them all to lists:
-            case_names = [self.get_baseline_info("cam_case_name", required=True)]
-            cam_ts_done = [self.get_baseline_info("cam_ts_done")]
-            cam_hist_locs = [self.get_baseline_info("cam_hist_loc")]
-            ts_dirs = [self.get_baseline_info("cam_ts_loc", required=True)]
-            overwrite_ts = [self.get_baseline_info("cam_overwrite_ts")]
-            start_years = [self.climo_yrs["syear_baseline"]]
-            end_years = [self.climo_yrs["eyear_baseline"]]
-            case_type_string = "baseline"
-            hist_str_list = [self.hist_string["base_hist_str"]]
-
-        else:
-            # Use test case settings, which are already lists:
-            case_names = self.get_cam_info("cam_case_name", required=True)
-            cam_ts_done = self.get_cam_info("cam_ts_done")
-            cam_hist_locs = self.get_cam_info("cam_hist_loc")
-            ts_dirs = self.get_cam_info("cam_ts_loc", required=True)
-            overwrite_ts = self.get_cam_info("cam_overwrite_ts")
-            start_years = self.climo_yrs["syears"]
-            end_years = self.climo_yrs["eyears"]
-            case_type_string="case"
-            hist_str_list = self.hist_string["test_hist_str"]
-        # End if
+        # Gather the per-case configuration (shared with the GenTS back end):
+        cfg = self.get_ts_case_config(baseline=baseline)
+        case_names = cfg["case_names"]
+        cam_ts_done = cfg["cam_ts_done"]
+        cam_hist_locs = cfg["cam_hist_locs"]
+        ts_dirs = cfg["ts_dirs"]
+        overwrite_ts = cfg["overwrite_ts"]
+        start_years = cfg["start_years"]
+        end_years = cfg["end_years"]
+        case_type_string = cfg["case_type_string"]
+        hist_str_list = cfg["hist_str_list"]
 
         # Read hist_str (component.hist_num) from the yaml file, or set to default
         dmsg = f"reading from {hist_str_list} files"

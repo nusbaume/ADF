@@ -42,6 +42,8 @@ Notes
 """
 
 #import statements:
+from pathlib import Path
+
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -69,6 +71,31 @@ seasons = {"ANN": np.arange(1,13,1),
 #################
 #HELPER FUNCTIONS
 #################
+
+def find_ts_files(ts_loc, pattern):
+    """
+    Locate time series files matching `pattern` underneath `ts_loc`.
+
+    Searches `ts_loc` itself first, which is where ADF's own time series step
+    and a flat GenTS run both put their files.  Only if that finds nothing does
+    it fall back to a recursive search, so that a GenTS archive laid out as
+    <component>/proc/tseries/<frequency>/ can be used by pointing `cam_ts_loc`
+    at the top of the tree instead of the frequency sub-directory.
+
+    Parameters
+    ----------
+    ts_loc : str or Path
+        directory to search
+    pattern : str
+        glob pattern, e.g. "case.cam.h0a.T.*nc"
+
+    Returns
+    -------
+    list of Path, sorted; empty if nothing matches.
+    """
+    ts_loc = Path(ts_loc)
+    return sorted(ts_loc.glob(pattern)) or sorted(ts_loc.rglob(pattern))
+
 
 def load_dataset(fils):
     """

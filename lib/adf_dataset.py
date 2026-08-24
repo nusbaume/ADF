@@ -135,8 +135,7 @@ class AdfData:
             ts_filenames = f'{case}.{hist_str}.{field}.*nc'
         else:
             ts_filenames = f'{case}.*.{field}.*nc'
-        ts_files = sorted(ts_loc.glob(ts_filenames))
-        return ts_files
+        return utils.find_ts_files(ts_loc, ts_filenames)
 
     # Reference case (baseline/obs)
     def get_ref_timeseries_file(self, field, hist_str=None):
@@ -153,8 +152,7 @@ class AdfData:
             ts_filenames = f'{self.ref_case_label}.{hist_str}.{field}.*nc'
         else:
             ts_filenames = f'{self.ref_case_label}.*.{field}.*nc'
-        ts_files = sorted(ts_loc.glob(ts_filenames))
-        return ts_files
+        return utils.find_ts_files(ts_loc, ts_filenames)
 
 
     def load_timeseries_dataset(self, fils):
