@@ -213,10 +213,15 @@ def amwg_table(adf):
                 continue
             #End if
 
-            #TEMPORARY:  For now, make sure only one file exists:
-            if len(ts_files) != 1:
-                errmsg =  "\t    WARNING: Currently the AMWG table script can only handle one time series file per variable."
-                errmsg += f" Multiple files were found for the variable '{var}', so it will be skipped."
+            #A variable split into consecutive chunks (which is what GenTS
+            #produces when 'slice_years' is set, and how CMIP-style archives are
+            #laid out) can be opened together.  Overlapping sets cannot, because
+            #the combined time axis would contain duplicates:
+            if utils.ts_files_overlap(ts_files):
+                errmsg =  "\t    WARNING: Time series files for the variable "
+                errmsg += f"'{var}' cover overlapping or unrecognized periods, so it will be"
+                errmsg += " skipped.  Please leave only one set of time series files per"
+                errmsg += " variable in the directory."
                 print(errmsg)
                 continue
             #End if
@@ -356,7 +361,10 @@ def amwg_table(adf):
 def _get_row_vals(data):
     # Now that data is (time,), we can do our simple stats:
 
-    data_mean = data.data.mean()
+    #Reduce to plain floats up front.  When a variable spans several time
+    #series files these arrays are dask-backed (open_mfdataset), and a dask
+    #scalar has no .item() and does not honour a numeric format spec.
+    data_mean = float(data.data.mean())
     #Conditional Formatting depending on type of float
     if np.abs(data_mean) < 1:
         formatter = ".3g"
@@ -364,14 +372,14 @@ def _get_row_vals(data):
         formatter = ".3f"
 
     data_sample = len(data)
-    data_std = data.std()
+    data_std = float(data.std())
     data_sem = data_std / data_sample
     data_ci = data_sem * 1.96  # https://en.wikipedia.org/wiki/Standard_error
     data_trend = stats.linregress(data.year, data.values)
 
-    stdev = f'{data_std.data.item() : {formatter}}'
-    sem = f'{data_sem.data.item() : {formatter}}'
-    ci = f'{data_ci.data.item() : {formatter}}'
+    stdev = f'{data_std : {formatter}}'
+    sem = f'{data_sem : {formatter}}'
+    ci = f'{data_ci : {formatter}}'
     slope_int = f'{data_trend.intercept : {formatter}} + {data_trend.slope : {formatter}} t'
     pval = f'{data_trend.pvalue : {formatter}}'
 

@@ -97,6 +97,61 @@ def find_ts_files(ts_loc, pattern):
     return sorted(ts_loc.glob(pattern)) or sorted(ts_loc.rglob(pattern))
 
 
+def ts_files_overlap(fils):
+    """
+    Report whether time series files cover overlapping periods.
+
+    ADF and GenTS both name time series files
+    `{case}.{stream}.{variable}.{start}-{end}.nc`, where the dates are
+    zero-padded and all use the same width for a given variable.  A variable
+    split into consecutive chunks (e.g. 001001-001912 then 002001-002912) can
+    safely be opened together; two overlapping sets (e.g. years 1-20 alongside
+    years 1-40, which happens when a run is extended and the time series are
+    remade over a longer period) cannot, because the combined time axis would
+    contain duplicates.
+
+    Parameters
+    ----------
+    fils : list
+        strings or paths to time series files
+
+    Returns
+    -------
+    bool
+        True if the files overlap, or if the dates could not be read from the
+        names -- in both cases the caller should not blindly combine them.
+        False if the files are non-overlapping and safe to open together.
+    """
+    if len(fils) < 2:
+        return False
+
+    spans = []
+    for fil in fils:
+        #Second-to-last dot-separated token, e.g. "001001-001112" in
+        #"case.cam.h0a.T.001001-001112.nc":
+        date_str = Path(fil).stem.split(".")[-1]
+        start, sep, end = date_str.partition("-")
+        if not sep or not start.isdigit() or not end.isdigit():
+            #Unrecognized name, so make no promises about it:
+            return True
+        spans.append((start, end))
+    #End for
+
+    #Zero-padded dates of equal width sort chronologically as strings, but
+    #mixed widths (e.g. YYYY next to YYYYMM) would not, so bail out on those:
+    widths = {len(s) for span in spans for s in span}
+    if len(widths) != 1:
+        return True
+
+    spans.sort()
+    for (_, prev_end), (next_start, _) in zip(spans, spans[1:]):
+        if next_start <= prev_end:
+            return True
+    #End for
+
+    return False
+
+
 def load_dataset(fils):
     """
     This method exists to get an xarray Dataset from input file information that can be passed into the plotting methods.

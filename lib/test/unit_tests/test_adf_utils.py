@@ -12,6 +12,7 @@ import sys
 import os
 import os.path
 import tempfile
+from pathlib import Path
 
 #Set relevant path variables:
 _CURRDIR = os.path.abspath(os.path.dirname(__file__))
@@ -23,7 +24,7 @@ sys.path.append(_ADF_LIB_DIR)
 #adf_utils pulls in the scientific stack (xarray, geocat, ...), which isn't
 #always present in a bare test environment, so skip rather than error there:
 try:
-    from adf_utils import find_ts_files
+    from adf_utils import find_ts_files, ts_files_overlap
     _HAS_ADF_UTILS = True
 except ImportError:
     _HAS_ADF_UTILS = False
@@ -102,6 +103,73 @@ class AdfUtilsTestRoutine(unittest.TestCase):
             open(os.path.join(tmpdir, "case.cam.h0a.T.000101-001112.nc"), "w").close()
 
             self.assertEqual(find_ts_files(tmpdir, "case.cam.h0a.PRECT.*nc"), [])
+
+    def test_ts_files_overlap_consecutive(self):
+
+        """
+        Consecutive chunks (what GenTS writes when 'slice_years' is set, and
+        how CMIP-style archives are laid out) can safely be opened together.
+        """
+
+        fils = ["case.cam.h0a.T.001001-001912.nc",
+                "case.cam.h0a.T.002001-002912.nc"]
+
+        self.assertFalse(ts_files_overlap(fils))
+
+    def test_ts_files_overlap_overlapping(self):
+
+        """
+        Two sets covering overlapping periods (years 1-20 alongside years
+        1-40, from a run that was extended and re-processed) must be refused.
+        """
+
+        fils = ["case.cam.h0a.T.000101-002012.nc",
+                "case.cam.h0a.T.000101-004012.nc"]
+
+        self.assertTrue(ts_files_overlap(fils))
+
+    def test_ts_files_overlap_single_file(self):
+
+        """
+        A single file never overlaps anything.
+        """
+
+        self.assertFalse(ts_files_overlap(["case.cam.h0a.T.001001-001112.nc"]))
+
+    def test_ts_files_overlap_unparsable(self):
+
+        """
+        Names the date range cannot be read from are reported as overlapping,
+        so that callers do not blindly combine them.
+        """
+
+        fils = ["case.cam.h0a.T.somethingelse.nc",
+                "case.cam.h0a.T.001001-001912.nc"]
+
+        self.assertTrue(ts_files_overlap(fils))
+
+    def test_ts_files_overlap_mixed_date_widths(self):
+
+        """
+        Mixed date widths do not sort chronologically as strings, so they are
+        refused rather than compared incorrectly.
+        """
+
+        fils = ["case.cam.h0a.T.0010-0019.nc",
+                "case.cam.h0a.T.002001-002912.nc"]
+
+        self.assertTrue(ts_files_overlap(fils))
+
+    def test_ts_files_overlap_accepts_paths(self):
+
+        """
+        Callers pass Path objects from find_ts_files, not just strings.
+        """
+
+        fils = [Path("/some/dir/case.cam.h0a.T.001001-001912.nc"),
+                Path("/some/dir/case.cam.h0a.T.002001-002912.nc")]
+
+        self.assertFalse(ts_files_overlap(fils))
 
 #++++++++++++++++++
 

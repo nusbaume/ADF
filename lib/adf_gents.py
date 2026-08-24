@@ -133,12 +133,23 @@ def create_time_series_gents(adf, baseline=False):
     #ask for them when stdout is actually a terminal.
     show_progress = sys.stdout.isatty()
 
-    #GenTS options (all optional; absent means "behave like the ADF back end"):
-    opts = adf.get_basic_info("gents_options") or {}
-    all_vars = bool(opts.get("all_vars", False))
-    nested_layout = bool(opts.get("nested_layout", False))
-    slice_years = opts.get("slice_years")
-    compression = opts.get("compression")
+    #GenTS options (all optional; absent means "behave like the ADF back end").
+    #These are flat keys rather than a 'gents_options' sub-dictionary because
+    #ADF's config reader allows only one level of nesting (adf_config.py:111).
+    all_vars = bool(adf.get_basic_info("gents_all_vars"))
+    nested_layout = bool(adf.get_basic_info("gents_nested_layout"))
+    slice_years = adf.get_basic_info("gents_slice_years")
+    compression_alg = adf.get_basic_info("gents_compression")
+    compression_level = adf.get_basic_info("gents_compression_level")
+
+    #GenTS requires a level whenever an algorithm is given, so check here
+    #rather than letting it fail part-way through generation:
+    if compression_alg and compression_level is None:
+        emsg = f"'gents_compression' is set to '{compression_alg}', but"
+        emsg += " 'gents_compression_level' was not given.  Please provide a"
+        emsg += " compression level (0-9), or remove 'gents_compression'."
+        adf.end_diag_fail(emsg)
+    #End if
 
     #Same config the built-in back end uses, so the two cannot drift apart:
     cfg = adf.get_ts_case_config(baseline=baseline)
@@ -250,9 +261,9 @@ def create_time_series_gents(adf, baseline=False):
                 tsc = tsc.apply_overwrite("*")
             #End if
 
-            if compression:
-                tsc = tsc.apply_compression(level=compression["level"],
-                                            alg=compression["alg"],
+            if compression_alg:
+                tsc = tsc.apply_compression(level=compression_level,
+                                            alg=compression_alg,
                                             path_glob="*")
             #End if
 

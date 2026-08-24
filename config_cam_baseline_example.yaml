@@ -132,25 +132,29 @@ diag_basic_info:
     ts_tool: adf
 
     #Options for the GenTS back end (ignored unless "ts_tool" is "gents").
-    #Every entry is optional; the defaults shown reproduce what the built-in
+    #Every entry is optional; leaving them out reproduces what the built-in
     #ADF back end produces.
-    #gents_options:
-        #Generate every variable in the history stream instead of just the
-        #variables listed in "diag_var_list":
-        #all_vars: false
+    #NOTE: these are flat entries rather than a nested "gents_options" block,
+    #      because the ADF config reader allows only one level of nesting.
 
-        #Write GenTS's native <component>/proc/tseries/<frequency>/ layout
-        #instead of writing flat into "cam_ts_loc":
-        #nested_layout: false
+    #Generate every variable in the history stream instead of just the
+    #variables listed in "diag_var_list":
+    #gents_all_vars: false
 
-        #Years per time series file.  If missing or blank, a single file
-        #spanning start_year through end_year is written for each variable,
-        #which is what the built-in ADF back end does:
-        #slice_years: 10
+    #Write GenTS's native <component>/proc/tseries/<frequency>/ layout instead
+    #of writing flat into "cam_ts_loc":
+    #gents_nested_layout: false
 
-        #netCDF compression.  If missing or blank, no compression is applied.
-        #The CESM3 convention is zlib level 2:
-        #compression: {alg: zlib, level: 2}
+    #Years per time series file.  If missing or blank, a single file spanning
+    #start_year through end_year is written for each variable, which is what
+    #the built-in ADF back end does:
+    #gents_slice_years: 10
+
+    #netCDF compression.  If missing or blank, no compression is applied.
+    #A level is required whenever an algorithm is given.
+    #The CESM3 convention is zlib at level 2:
+    #gents_compression: zlib
+    #gents_compression_level: 2
 
     #IMPORTANT: unlike ADF's built-in back end, GenTS writes "PS" to its own
     #time series file rather than copying it into every 3-D variable's file.
