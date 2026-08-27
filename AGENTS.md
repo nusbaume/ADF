@@ -189,20 +189,116 @@ blocking findings.
 
 ## 6. Style conventions
 
-The codebase is stylistically mixed and that is accepted. **Match the surrounding file**, and
-do not ask for reformatting beyond the diff.
+Two of the rules below — `black` formatting and Sphinx-ready docstrings — are **conventions for
+new code, not yet enforced by CI**. Neither `black` nor `sphinx` is in
+`env/conda_environment.yaml` or `.pre-commit-config.yaml`, and there is no `docs/` tree or
+`conf.py` in the repo. So: hold new code to them, and do not fail a PR because the
+existing file around it does not comply.
 
-- Some files use the older ADF idiom — `#Comment` with no space, `#+++++` banner blocks,
-  `#End if` / `#End for` closers. Newer/reformatted files (e.g. `lib/adf_diag.py`) are
-  black-ish with `# Comment`. Both are fine in their own file; a PR should not convert one to
-  the other as a side effect.
-- Module docstring at the top; docstrings on public functions. `scripts/plotting/` entry points
-  document which `adfobj` attributes and helper functions they use — a good pattern to ask new
-  plotting scripts to follow (see `scripts/plotting/global_latlon_map.py`).
+### 6.1 Formatting: `black` on new code
+
+All code **added or rewritten** by a PR should be `black`-formatted (default settings, 88-column
+target). The existing tree is not black-clean, and converting it is out of scope for any PR that
+is not explicitly a formatting PR — `black` normalizes `#comment` to `# comment`, so running it
+over a file written in the older ADF idiom (`#Comment`, `#+++++` banners, `#End if`) rewrites
+essentially every line and buries the real change.
+
+How to check without demanding a whole-file reformat:
+
+```bash
+pip install black                                    # not in the conda env
+git diff main...HEAD --name-only -- '*.py' | xargs black --check --diff
+```
+
+Read the resulting diff and **only report hunks that overlap lines the PR added or changed**;
+ignore the rest. To get just those lines, `darker` (black restricted to changed lines) is the
+tool that does this properly:
+
+```bash
+pip install darker && darker --check --diff --revision main...HEAD .
+```
+
+Notes:
+- black's 88 columns sits inside pylint's `max-line-length=100` (`lib/test/pylintrc`), so
+  black-formatted code will not trip the length check. black does *not* wrap comments,
+  docstrings, or long string literals, though — those can still exceed 100 and fail pylint on
+  the six linted files (§3).
+- Where black and the surrounding file disagree on comment style, black wins **for the new
+  lines only**. Mixed style within a file during the transition is expected and acceptable.
+- Keep whitespace-only churn out of the diff; it hides the real change from reviewers. If a PR
+  genuinely needs to reformat a file, that belongs in a separate commit — ideally a separate PR
+  — so the functional diff stays reviewable.
+
+### 6.2 Docstrings: Sphinx/ReadTheDocs-ready
+
+Write every docstring so it renders correctly when Sphinx autodoc + napoleon is turned on. The
+established ADF style is **NumPy-style** (used consistently in `lib/plotting_functions.py`,
+`lib/adf_dataset.py`, `lib/adf_utils.py`, `lib/adf_derive.py`, `scripts/plotting/zonal_mean.py`,
+`scripts/plotting/global_latlon_map.py`, and others) — new docstrings must match it, not
+Google style and not free prose.
+
+Require of new or modified public functions, classes, and modules:
+
+- **Present at all.** Module docstring at the top of every file; docstring on every public
+  function, class, and method. Names starting with `_` are exempt (`no-docstring-rgx=^_`).
+- **A one-line summary** first, ending in a period, then a blank line before any further text.
+- **NumPy-style sections with correct underlines** — the underline of dashes must be at least as
+  long as the heading, or Sphinx emits a title-underline-too-short warning and drops the
+  section:
+  ```
+  Parameters
+  ----------
+  adfobj : AdfDiag
+      The diagnostics object that contains all the configuration information.
+
+  Returns
+  -------
+  None
+      Produces plots and saves files.
+  ```
+- **Every parameter documented, with a type**, in `name : type` form (space before the colon)
+  and the description indented beneath it. Names must match the signature — a stale or missing
+  parameter name is a findable error in review. Use `Raises` for exceptions the caller should
+  expect (`AdfError`), `Yields` for generators.
+- **Valid reStructuredText.** The common breakages to look for:
+  - Literals need double backticks (``` ``None`` ```), not markdown single backticks; code
+    blocks need a `::` and an indented block, not triple backticks.
+  - A `*args`/`**kwargs` or a bare `*` in prose starts emphasis in reST — escape it or wrap it
+    in double backticks.
+  - Docstrings containing `\n`, `\t`, LaTeX, or Windows paths must be raw strings (`r"""..."""`).
+  - Lists and indented blocks need a blank line before them.
+- **Keep the ADF-specific `Notes` convention** for stage scripts: `scripts/` entry points list
+  which `adfobj` attributes/methods and which helper functions they use. It is the fastest way
+  for a reviewer or maintainer to see a script's dependency surface — see
+  `scripts/plotting/global_latlon_map.py`. Ask new plotting/analysis scripts to include it, and
+  ask a PR that starts using a new `adfobj` attribute to add it to that list.
+- Cross-reference other ADF objects with Sphinx roles (`` :class:`AdfDiag` ``,
+  `` :meth:`add_website_data` ``, `` :func:`derive_variable` ``) rather than plain text, so the
+  links work once docs are built.
+
+There is no docs build to run against yet, so this is primarily a read-and-judge check. For a
+PR with large or heavily formatted docstrings, `numpydoc`'s validator catches the mechanical
+problems (missing sections, undocumented or misnamed parameters, bad summary lines):
+
+```bash
+pip install numpydoc                                       # not in the conda env
+conda activate adf_v1.0.0                                  # imports need xarray, matplotlib, ...
+PYTHONPATH=lib:scripts/plotting python -m numpydoc --validate adf_dataset.AdfData.load_climo_da
+```
+
+Neither `numpydoc` nor a docs build is set up in this repo, so treat the command as a
+convenience, not a gate — and if it will not run, review the docstrings by eye against the
+checklist above rather than skipping the check.
+
+### 6.3 Everything else
+
 - `snake_case` for functions/arguments/attributes, `PascalCase` for classes, `UPPER_CASE` for
-  constants (enforced by pylint on the six linted files).
-- No bare `except:` in new code, even though existing scripts have them.
-- Keep whitespace-only churn out of the diff; it hides the real change from reviewers.
+  constants (enforced by pylint on the six linted files, expected everywhere).
+- No bare `except:` in new code, even though existing scripts have them; catch a specific
+  exception, or `except Exception` with a comment explaining why.
+- Legacy idioms (`#+++++` banner blocks, `#End if` / `#End for` closers) are fine to leave in
+  place and fine to keep using inside a file that already uses them. Do not ask a PR to add them
+  to new files, and do not ask a PR to strip them from old ones.
 
 ## 7. How to run a review
 
