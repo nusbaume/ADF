@@ -224,11 +224,13 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
         #NOTE: this will need to be changed when derived equations are more complex! - JR
         if var == "RESTOM":
             der_val = ds["FSNT"]-ds["FLNT"]
+            der_long_name = "Net radiative flux at top of model (FSNT - FLNT)"
         else:
             # Loop through all constituents and sum
             der_val = 0
             for v in constit_list:
                 der_val += ds[v]
+            der_long_name = "Sum of " + ", ".join(constit_list)
 
         # Set derived variable name and add to dataset
         der_val.name = var
@@ -270,13 +272,28 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
             # Sulfate conversion factor
             if var == "SO4":
                 ds[var] = ds[var]*(96./115.)
+
+            #Multiplying by density turned a mixing ratio into a concentration:
+            der_long_name += ", times dry air density"
+            attrs = {**attrs, "units": "kg/m3"}
         #----------------------------------------------------------------------------------
 
         # Drop all constituents from final saved dataset
         # These are not necessary because they have their own time series files
         ds_final = ds.drop_vars(constit_list)
-        # Copy attributes from constituent file to derived variable
-        ds_final[var].attrs = attrs
+        # Copy attributes from constituent file to derived variable, but not its
+        # name: the constituent's 'long_name' describes the constituent, not the
+        # variable just derived from it.
+        ds_final[var].attrs = {**attrs,
+                               "long_name": res.get(var, {}).get("long_name",
+                                                                 der_long_name)}
+        # open_mfdataset leaves time bounds as a *chunked* datetime array, and
+        # xarray refuses to encode one of those when the units it inherits from
+        # 'time' come without a dtype.  They are tiny, so just load them.
+        # ponytail: load, not re-encode; revisit if a bounds variable is ever large
+        for tvar in [v for v in ds_final.variables
+                     if ds_final[v].dtype.kind in "OM" and ds_final[v].chunks]:
+            ds_final[tvar] = ds_final[tvar].load()
         ds_final.to_netcdf(derived_file, unlimited_dims='time', mode='w')
     # End if (all the necessary constituent files exist)
 ########
