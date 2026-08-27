@@ -143,14 +143,13 @@ For a script `scripts/<stage>/<name>.py` listed in the config:
   `adfobj.add_website_data(web_data, web_name, case_name, category=…, season=…,
   non_season=…, plot_type=…, multi_case=…)`. A new plot with no such call produces a file no
   one ever sees.
-- `plot_type` and `category` must match what `lib/adf_web.py` and the templates in
-  `lib/website_templates/` expect; a new plot type usually implies template/index work too
-  (cf. commit 307d811, "Fix website generation for non-default plot types").
 - `add_website_data` no-ops when `create_html` is false — so website changes must not be the
   only place a code path is exercised.
 
 ### 4.5 Errors, logging, parallelism
 
+- Routines under the `scripts` directory should avoid raising an exception (or calling `end_diag_fail`)
+  whenever possible, so if the code can likely continue running, please flag the line during review.
 - Framework code fails via `self.end_diag_fail(msg)` (raises `AdfError`, no traceback spam),
   not `sys.exit()` or a bare `raise`. Diagnostic scripts should warn-and-skip.
 - Debug output goes through `adfobj.debug_log(...)`, not stray `print()` in library code.
@@ -313,7 +312,7 @@ checklist above rather than skipping the check.
 5. Run the §3 checks that apply.
 6. Verify the artifacts that CI cannot: the entry-point name, the config entry, the
    `add_website_data` call, the `adf_variable_defaults.yaml` entry, `env/conda_environment.yaml`
-   if imports changed, and the README/wiki if user-facing behavior changed.
+   if imports changed, and the docstrings or comments if any become mis-matched due to the new changes.
 
 **Report as:**
 
