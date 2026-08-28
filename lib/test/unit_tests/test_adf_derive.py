@@ -254,6 +254,30 @@ class AdfDeriveTestRoutine(unittest.TestCase):
             with xr.open_dataset(out[0]) as ds:
                 self.assertEqual(len(ds.time), 240)
 
+    def test_case_name_containing_constituent_name(self):
+
+        """
+        The derived file name is built by substituting whole dot-separated
+        tokens.  A plain string replace rewrites a case name that happens to
+        contain the constituent's name too, producing a file that
+        AdfData.get_timeseries_file (which searches on the case name) can
+        never find.
+        """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for var in ("FSNT", "FLNT"):
+                _write_ts(
+                    Path(tmpdir) / f"bFSNTtest.cam.h0a.{var}.000101-002012.nc",
+                    var, 1, 20)
+
+            derive_variable(_StubAdf(), "bFSNTtest", "RESTOM", res={},
+                            ts_dir=tmpdir, constit_list=["FSNT", "FLNT"],
+                            hist_str="cam.h0a")
+
+            out = sorted(Path(tmpdir).glob("*RESTOM*.nc"))
+            self.assertEqual([f.name for f in out],
+                             ["bFSNTtest.cam.h0a.RESTOM.000101-002012.nc"])
+
     def test_missing_constituent_writes_nothing(self):
 
         """

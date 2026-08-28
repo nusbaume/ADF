@@ -213,10 +213,11 @@ def amwg_table(adf):
                 continue
             #End if
 
-            #A variable split into consecutive chunks (which is what GenTS
-            #produces when 'slice_years' is set, and how CMIP-style archives are
-            #laid out) can be opened together.  Overlapping sets cannot, because
-            #the combined time axis would contain duplicates:
+            #A variable split into consecutive chunks, which is what GenTS
+            #produces when 'slice_years' is set, can be opened together.
+            #Overlapping sets cannot, because the combined time axis would
+            #contain duplicates.  Only ADF/GenTS names have readable dates, so
+            #anything else is skipped rather than combined on a guess:
             if utils.ts_files_overlap(ts_files):
                 errmsg =  "\t    WARNING: Time series files for the variable "
                 errmsg += f"'{var}' cover overlapping or unrecognized periods, so it will be"

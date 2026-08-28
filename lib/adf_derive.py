@@ -201,13 +201,17 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
     Derive variables acccording to steps given here.  Since derivations will depend on the
     variable, each variable to derive will need its own set of steps below.
 
-    A constituent may be split across several consecutive time series files
-    (GenTS does this when 'gents_slice_years' is set, and CMIP-style archives
-    are laid out that way).  All of a constituent's files are opened together
-    and the derived variable is written as a single file spanning them, which
-    is what the built-in back end produces.  Constituents whose files cover
-    *overlapping* periods are refused, because the combined time axis would
-    contain duplicates.
+    A constituent may be split across several consecutive time series files,
+    which is what GenTS produces when 'gents_slice_years' is set.  All of a
+    constituent's files are opened together and the derived variable is
+    written as a single file spanning them, which is what the built-in back
+    end produces.  Constituents whose files cover *overlapping* periods are
+    refused, because the combined time axis would contain duplicates.
+
+    Only ADF/GenTS names, `{case}.{stream}.{variable}.{start}-{end}.nc`, are
+    understood.  A chunked archive named some other way (a CMIP `_`-separated
+    name, say) cannot have its dates read, and is refused rather than combined
+    on a guess.
 
     Derivation runs once per configured history stream, so `hist_str` has to
     be passed for a case with more than one: without it the search matches
@@ -286,13 +290,22 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
         # With one file per constituent the span is that file's own dates, so
         # the name is unchanged from what ADF has always written.
         first_files = constit_matches[constit_list[0]]
-        derived_file = Path(first_files[0]).name.replace(constit_list[0], var)
+        # Substitute whole dot-separated tokens rather than doing a plain
+        # string replace: a case name that happens to contain the constituent
+        # name (say case 'bFSNTtest' with constituent 'FSNT') would otherwise
+        # be rewritten too, producing a file nothing downstream can find.
+        tokens = Path(first_files[0]).stem.split(".")
         span = utils.ts_file_span(first_files)
+        for idx, token in enumerate(tokens):
+            if token == constit_list[0]:
+                tokens[idx] = var
+                break
+            # End if
+        # End for
         if span:
-            old_span = Path(first_files[0]).stem.split(".")[-1]
-            derived_file = derived_file.replace(old_span, f"{span[0]}-{span[1]}")
+            tokens[-1] = f"{span[0]}-{span[1]}"
         # End if
-        derived_file = str(Path(first_files[0]).parent / derived_file)
+        derived_file = str(Path(first_files[0]).parent / (".".join(tokens) + ".nc"))
 
         # Check if clobber is true for file
         if Path(derived_file).is_file():
