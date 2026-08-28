@@ -55,10 +55,12 @@ def _import_gents():
         from gents.timeseries import TSCollection
     except ImportError as err:
         emsg = "'ts_tool: gents' requires the GenTS package, which was not found.\n"
-        emsg += "\tInstall it with: pip install gents \"numpy>=2.0,<2.3\"\n"
-        emsg += "\t(GenTS needs python>=3.10, numpy>=2.0 and netCDF4>=1.7.0, which are newer\n"
-        emsg += "\t than the pinned ADF environment, so it may need its own env.  Pin numpy\n"
-        emsg += "\t below 2.3: numba, used by the climatology step, rejects anything newer.)\n"
+        emsg += "\tInstall it with: pip install gents\n"
+        emsg += "\t(GenTS needs python>=3.10, numpy>=2.0 and netCDF4>=1.7.0, which may be\n"
+        emsg += "\t newer than the pinned ADF environment, so it may need its own env.\n"
+        emsg += "\t Afterwards check numpy against numba, which the climatology step uses:\n"
+        emsg += "\t numba caps the numpy it accepts and the cap moves with each numba\n"
+        emsg += "\t release, so a numpy your numba rejects makes every climatology fail.)\n"
         emsg += "\tOr set 'ts_tool: adf' to use the built-in ncrcat path instead."
         raise AdfError(emsg) from err
     return HFCollection, TSCollection

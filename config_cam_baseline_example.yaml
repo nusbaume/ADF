@@ -122,13 +122,15 @@ diag_basic_info:
     #  gents - hand off to the GenTS package (https://github.com/AgentOxygen/GenTS),
     #          the tool the CESM project is standardizing on.
     #NOTE: GenTS is an optional dependency and is NOT part of the provided conda
-    #      environment, because it requires newer numpy/netCDF4 than the ADF env
-    #      pins.  Install it separately with "pip install gents".
-    #      Take care with numpy: GenTS needs numpy>=2.0, but numba (used by
-    #      xarray/flox during the climatology step) needs numpy<=2.2, so a
-    #      plain "pip install gents" on top of the ADF environment will pull
-    #      numpy 2.5 and make every climatology fail.  Pin the overlap, e.g.
-    #        pip install gents "numpy>=2.0,<2.3"
+    #      environment, because it may require newer numpy/netCDF4 than the ADF
+    #      env pins.  Install it separately with "pip install gents".
+    #      One thing to check afterwards: numba (used by xarray/flox during the
+    #      climatology step) caps the numpy version it accepts, and that cap
+    #      moves with the numba release -- numba 0.65 allows numpy<2.5, older
+    #      numba allowed much less.  If pip pulls a numpy your numba rejects,
+    #      every climatology fails while ADF still reports success, so check the
+    #      pair after installing rather than forcing a pin that may be wrong for
+    #      your environment.
     ts_tool: adf
 
     #Options for the GenTS back end (ignored unless "ts_tool" is "gents").
