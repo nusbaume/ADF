@@ -151,6 +151,19 @@ def check_derive(self, res, var, case_name, diag_var_list, constit_dict, hist_fi
 
 ########
 
+def _find_constit(ts_dir, case_name, constit):
+    """
+    Locate a constituent's time series file(s), preferring this case's own.
+
+    find_ts_files falls back to a recursive search, so an unanchored pattern
+    can reach another case's files when several cases share a time series
+    tree.  Try the case-anchored name first and fall back to the looser
+    pattern ADF has always used.
+    """
+    return (utils.find_ts_files(ts_dir, f"{case_name}.*.{constit}.*.nc")
+            or utils.find_ts_files(ts_dir, f"*.{constit}.*.nc"))
+
+
 def derive_variable(self, case_name, var, res=None, ts_dir=None,
                          constit_list=None, overwrite=None):
     """
@@ -179,7 +192,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
     constit_matches = {}
     for constit in constit_list:
         # Check if the constituent file(s) are present, if so add them to the dict
-        matches = utils.find_ts_files(ts_dir, f"*.{constit}.*.nc")
+        matches = _find_constit(ts_dir, case_name, constit)
         if not matches:
             continue
         if utils.ts_files_overlap(matches):
@@ -280,7 +293,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
             # the whole list: taking [0] would multiply a full-span variable by
             # a single chunk, which time-axis alignment turns silently into NaN.
             # Check if PMID is in file:
-            ds_pmid = self.data.load_dataset(utils.find_ts_files(ts_dir, "*.PMID.*"))
+            ds_pmid = self.data.load_dataset(_find_constit(ts_dir, case_name, "PMID"))
             if not ds_pmid:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'PMID' is in the CAM "
@@ -292,7 +305,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
                 return
 
             # Check if T is in file:
-            ds_t = self.data.load_dataset(utils.find_ts_files(ts_dir, "*.T.*"))
+            ds_t = self.data.load_dataset(_find_constit(ts_dir, case_name, "T"))
             if not ds_t:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'T' is in the CAM "
