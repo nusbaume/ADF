@@ -1,4 +1,5 @@
 from pathlib import Path
+import numpy as np
 import xarray as xr
 
 import adf_utils as utils
@@ -151,21 +152,51 @@ def check_derive(self, res, var, case_name, diag_var_list, constit_dict, hist_fi
 
 ########
 
-def _find_constit(ts_dir, case_name, constit):
+def _find_constit(ts_dir, case_name, constit, hist_str=None):
     """
-    Locate a constituent's time series file(s), preferring this case's own.
+    Locate a constituent's time series file(s) for one case and stream.
 
-    find_ts_files falls back to a recursive search, so an unanchored pattern
-    can reach another case's files when several cases share a time series
-    tree.  Try the case-anchored name first and fall back to the looser
-    pattern ADF has always used.
+    Most specific first.  The history stream matters: derivation runs once per
+    configured stream, and a case with two of them holds two files per
+    constituent whose dates are identical, which cannot be combined.  The case
+    name matters because find_ts_files falls back to a recursive search, so an
+    unanchored pattern can reach another case's files when several cases share
+    a time series tree.  The looser patterns are kept as fallbacks so
+    directories that do not follow the naming still work.
+
+    Parameters
+    ----------
+    ts_dir : str or Path
+        directory holding the time series files
+    case_name : str
+        name of the case being processed
+    constit : str
+        variable name to search for
+    hist_str : str, optional
+        history stream being processed, e.g. "cam.h0a"
+
+    Returns
+    -------
+    list of Path
+        Matching files, sorted; empty if nothing matches.
     """
-    return (utils.find_ts_files(ts_dir, f"{case_name}.*.{constit}.*.nc")
-            or utils.find_ts_files(ts_dir, f"*.{constit}.*.nc"))
+    patterns = []
+    if hist_str:
+        patterns.append(f"{case_name}.{hist_str}.{constit}.*.nc")
+    #End if
+    patterns += [f"{case_name}.*.{constit}.*.nc", f"*.{constit}.*.nc"]
+
+    for pattern in patterns:
+        found = utils.find_ts_files(ts_dir, pattern)
+        if found:
+            return found
+        #End if
+    #End for
+    return []
 
 
 def derive_variable(self, case_name, var, res=None, ts_dir=None,
-                         constit_list=None, overwrite=None):
+                         constit_list=None, overwrite=None, hist_str=None):
     """
     Derive variables acccording to steps given here.  Since derivations will depend on the
     variable, each variable to derive will need its own set of steps below.
@@ -177,6 +208,11 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
     is what the built-in back end produces.  Constituents whose files cover
     *overlapping* periods are refused, because the combined time axis would
     contain duplicates.
+
+    Derivation runs once per configured history stream, so `hist_str` has to
+    be passed for a case with more than one: without it the search matches
+    every stream's copy of a constituent, and those cover the same dates and
+    cannot be combined.
 
     If the file for the derived variable exists, the kwarg `overwrite` determines
     whether to overwrite the file (true) or exit with a warning message.
@@ -192,7 +228,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
     constit_matches = {}
     for constit in constit_list:
         # Check if the constituent file(s) are present, if so add them to the dict
-        matches = _find_constit(ts_dir, case_name, constit)
+        matches = _find_constit(ts_dir, case_name, constit, hist_str)
         if not matches:
             continue
         if utils.ts_files_overlap(matches):
@@ -293,7 +329,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
             # the whole list: taking [0] would multiply a full-span variable by
             # a single chunk, which time-axis alignment turns silently into NaN.
             # Check if PMID is in file:
-            ds_pmid = self.data.load_dataset(_find_constit(ts_dir, case_name, "PMID"))
+            ds_pmid = self.data.load_dataset(_find_constit(ts_dir, case_name, "PMID", hist_str))
             if not ds_pmid:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'PMID' is in the CAM "
@@ -305,7 +341,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
                 return
 
             # Check if T is in file:
-            ds_t = self.data.load_dataset(_find_constit(ts_dir, case_name, "T"))
+            ds_t = self.data.load_dataset(_find_constit(ts_dir, case_name, "T", hist_str))
             if not ds_t:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'T' is in the CAM "
@@ -316,6 +352,30 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
                 dmsg += f"\n\t missing 'T' in {ts_dir}, can't make time series for {var} "
                 self.debug_log(dmsg)
                 return
+
+            # PMID and T have to cover the same times as the constituents.
+            # xarray aligns on time with an outer join, so a mismatch does not
+            # raise -- it fills with NaN, and a wholly disjoint pair would write
+            # an all-NaN field that looks like a real one.  Check before
+            # multiplying rather than shipping that.
+            for aux_name, aux_ds in (("PMID", ds_pmid), ("T", ds_t)):
+                shared = np.intersect1d(ds[var]["time"].values,
+                                        aux_ds["time"].values)
+                if len(shared) == len(ds[var]["time"]):
+                    continue
+                #End if
+                errmsg = f"\t   ** '{aux_name}' covers {len(shared)} of the "
+                errmsg += f"{len(ds[var]['time'])} times needed for {var}, so the "
+                errmsg += "dry air density calculation would be incomplete. **\n"
+                errmsg += f"\t     Please check the '{aux_name}' time series files "
+                errmsg += f"in {ts_dir}.\n"
+                print(errmsg)
+                dmsg = f"derived time series for {case_name}:"
+                dmsg += f"\n\t '{aux_name}' time axis does not cover {var}; "
+                dmsg += "skipping derivation."
+                self.debug_log(dmsg)
+                return
+            #End for
 
             # Multiply aerosol by dry air density (rho): (P/Rd*T)
             ds[var] = ds[var]*(ds_pmid["PMID"]/(res["Rgas"]*ds_t["T"]))

@@ -734,7 +734,7 @@ class AdfDiag(AdfWeb):
                 if constit_dict:
                     for der_var, constit_list in constit_dict.items():
                         derive_variable(self, case_name, der_var, res,
-                                        ts_dir, constit_list)
+                                        ts_dir, constit_list, hist_str=hist_str)
             # End for hist_str
         # End cases loop
 
