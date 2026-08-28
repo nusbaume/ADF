@@ -12,6 +12,8 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
 import cartopy.crs as ccrs
 
+import plotting_utils as plot_utils
+
 import xarray as xr
 import matplotlib as mpl
 from shapely.geometry import Point
@@ -262,6 +264,13 @@ def cloud_regime_analysis(
 
             # Compute cluster labels for the test case
             test_labels = compute_cluster_labels(processed_ds, var_info.tau_var, var_info.ht_var, cl, opts['distance'], opts['ot_library'], method=opts['emd_method'], num_cpus=opts['n_cpus'])
+            if test_labels is None:
+                # No valid histograms left, or the distance calculation could not
+                # run. Both are already reported; skip the case rather than end the
+                # whole ADF run with a traceback.
+                print(f"WARNING: Could not generate cluster labels for {field} in "
+                      f"case '{case_name}'. Skipping.")
+                continue
             test_labels.attrs['k'] = cl.shape[0]
 
             # 6. Generate all plots
@@ -460,7 +469,11 @@ def compute_cluster_labels(ds, tau_var_name, ht_var_name, cl, wasserstein_or_euc
             "will be meaningless until they match."
         )
     labels_valid = precomputed_clusters(mat_valid, cl, wasserstein_or_euclidean, ds, tau_var_name, ht_var_name, ot_library, method, num_cpus=num_cpus)
-    
+    if labels_valid is None:
+        # precomputed_clusters already said why. Return None so the caller can skip
+        # this variable rather than letting the assignment below raise a TypeError.
+        return None
+
     cluster_labels_flat = np.full(len(mat), np.nan, dtype=np.float32)
     cluster_labels_flat[is_valid] = labels_valid
     
@@ -774,14 +787,21 @@ def _plot_map(ax, lon, lat, data, title, cmap, vmin, vmax):
     ax.set_title(title, pad=4)
     return mesh
 
-def _configure_map_axes(ax, is_left, is_bottom):
-    """Configures ticks and labels for a map subplot."""
+def _configure_map_axes(ax, is_left, is_bottom, central_longitude=0):
+    """Configures ticks and labels for a map subplot.
+
+    central_longitude is the one the projection was built with; the ticks are
+    placed relative to it so they stay inside the visible span rather than
+    piling up at the edges.
+    """
     if is_left:
         ax.set_yticks([-60, -30, 0, 30, 60], crs=ccrs.PlateCarree())
         ax.yaxis.set_major_formatter(LatitudeFormatter())
     if is_bottom:
-        ax.set_xticks([-120, -60, 0, 60, 120], crs=ccrs.PlateCarree())
-        ax.xaxis.set_major_formatter(LongitudeFormatter(zero_direction_label=True))
+        ax.set_xticks([central_longitude + t for t in (-120, -60, 0, 60, 120)],
+                      crs=ccrs.PlateCarree())
+        # zero_direction_label would render the prime meridian as "0W".
+        ax.xaxis.set_major_formatter(LongitudeFormatter())
 
 
 def _add_colorbar(fig, ax, cmap, norm):
@@ -817,11 +837,14 @@ def plot_rfo_maps(test_labels, ref_labels, adf, field, plot_loc, case_name):
     k = test_labels.attrs.get("k", int(np.nanmax(test_labels.values)) + 1)
     obs_or_base = "Observation" if adf.compare_obs else "Baseline"
     img_type = adf.read_config_var("diag_basic_info").get('plot_type', 'png')
+    # Honour the run's 'central_longitude' the way the other map scripts do;
+    # the helper falls back to the ADF-wide default of 180 when it is unset.
+    clon = plot_utils.get_central_longitude(adf)
     plt.rcParams.update({"font.size": 13, "figure.dpi": 200})
     for cluster in range(k):
         fig, axes = plt.subplots(
             nrows=2, ncols=2,
-            subplot_kw={"projection": ccrs.PlateCarree()},
+            subplot_kw={"projection": ccrs.PlateCarree(central_longitude=clon)},
             figsize=(12, 7)
         )
         fig.subplots_adjust(wspace=0.15, hspace=0.15)
@@ -856,9 +879,9 @@ def plot_rfo_maps(test_labels, ref_labels, adf, field, plot_loc, case_name):
         _add_colorbar2(fig, ax[2], mesh3, "ΔRFO (%)")
 
         # Configure all axes
-        _configure_map_axes(ax[0], is_left=True, is_bottom=False)
-        _configure_map_axes(ax[1], is_left=False, is_bottom=False)
-        _configure_map_axes(ax[2], is_left=True, is_bottom=True)
+        _configure_map_axes(ax[0], is_left=True, is_bottom=False, central_longitude=clon)
+        _configure_map_axes(ax[1], is_left=False, is_bottom=False, central_longitude=clon)
+        _configure_map_axes(ax[2], is_left=True, is_bottom=True, central_longitude=clon)
         # Only three panels are used (reference, test, difference); drop the empty fourth.
         ax[3].remove()
 
