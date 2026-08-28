@@ -110,6 +110,9 @@ def _expand_derived_vars(adf, case_name, hist_files):
 
 def _restrict_to_vars(tsc, variables):
     """Keep only the GenTS orders whose primary variable was requested."""
+    #'primary_var' is a key of GenTS's own order dictionaries rather than part
+    #of its documented surface, so it is worth pinning down which GenTS version
+    #a failure came from: a rename raises KeyError here.
     wanted = set(variables)
     return tsc.copy(ts_orders=[o for o in tsc if o["primary_var"] in wanted])
 
@@ -225,6 +228,9 @@ def create_time_series_gents(adf, baseline=False):
             hfc = hfc.include(f"*{hist_str}.*.nc")
             #Pull metadata explicitly so the progress bar can be silenced;
             #include_years would otherwise trigger it with its own default.
+            #NOTE: pull_metadata mutates hfc in place and returns None, unlike
+            #the include/slice calls around it, so it is deliberately not
+            #reassigned here.
             hfc.pull_metadata(show_progress=show_progress)
             hfc = hfc.include_years(start_year, end_year)
 
