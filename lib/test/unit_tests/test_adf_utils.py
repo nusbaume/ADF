@@ -24,7 +24,7 @@ sys.path.append(_ADF_LIB_DIR)
 #adf_utils pulls in the scientific stack (xarray, geocat, ...), which isn't
 #always present in a bare test environment, so skip rather than error there:
 try:
-    from adf_utils import find_ts_files, ts_files_overlap
+    from adf_utils import find_ts_files, ts_files_overlap, ts_file_span
     _HAS_ADF_UTILS = True
 except ImportError:
     _HAS_ADF_UTILS = False
@@ -170,6 +170,50 @@ class AdfUtilsTestRoutine(unittest.TestCase):
                 Path("/some/dir/case.cam.h0a.T.002001-002912.nc")]
 
         self.assertFalse(ts_files_overlap(fils))
+
+    def test_ts_file_span_single_file(self):
+
+        """
+        A single file spans its own dates, so a derived variable built from
+        one constituent file keeps exactly the name ADF has always written.
+        """
+
+        span = ts_file_span(["case.cam.h0a.FSNT.000101-002012.nc"])
+
+        self.assertEqual(span, ("000101", "002012"))
+
+    def test_ts_file_span_chunked(self):
+
+        """
+        Consecutive chunks span from the first start to the last end, which is
+        what the derived file's name has to advertise.
+        """
+
+        fils = ["case.cam.h0a.FSNT.000101-001012.nc",
+                "case.cam.h0a.FSNT.001101-002012.nc"]
+
+        self.assertEqual(ts_file_span(fils), ("000101", "002012"))
+
+    def test_ts_file_span_unordered(self):
+
+        """
+        The span must not depend on the order the files arrive in.
+        """
+
+        fils = ["case.cam.h0a.FSNT.001101-002012.nc",
+                "case.cam.h0a.FSNT.000101-001012.nc"]
+
+        self.assertEqual(ts_file_span(fils), ("000101", "002012"))
+
+    def test_ts_file_span_unparsable(self):
+
+        """
+        Names the dates cannot be read from give None, so the caller falls back
+        to leaving the name alone rather than inventing a span.
+        """
+
+        self.assertIsNone(ts_file_span(["case.cam.h0a.FSNT.somethingelse.nc"]))
+        self.assertIsNone(ts_file_span([]))
 
 #++++++++++++++++++
 

@@ -157,7 +157,13 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
     Derive variables acccording to steps given here.  Since derivations will depend on the
     variable, each variable to derive will need its own set of steps below.
 
-    Caution: this method assumes that there will be one time series file per variable
+    A constituent may be split across several consecutive time series files
+    (GenTS does this when 'gents_slice_years' is set, and CMIP-style archives
+    are laid out that way).  All of a constituent's files are opened together
+    and the derived variable is written as a single file spanning them, which
+    is what the built-in back end produces.  Constituents whose files cover
+    *overlapping* periods are refused, because the combined time axis would
+    contain duplicates.
 
     If the file for the derived variable exists, the kwarg `overwrite` determines
     whether to overwrite the file (true) or exit with a warning message.
@@ -167,17 +173,33 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
     # Loop through derived variables
     print(f"\t - deriving time series for {var}")
 
-    # Grab all required time series files for derived variable
-    constit_files = []
+    # Grab all required time series files for derived variable.  A constituent
+    # can contribute more than one file, so key them by constituent rather than
+    # counting files:
+    constit_matches = {}
     for constit in constit_list:
-        # Check if the constituent file is present, if so add it to list
-        constit_matches = utils.find_ts_files(ts_dir, f"*.{constit}.*.nc")
-        if constit_matches:
-            constit_files.append(str(constit_matches[0]))
+        # Check if the constituent file(s) are present, if so add them to the dict
+        matches = utils.find_ts_files(ts_dir, f"*.{constit}.*.nc")
+        if not matches:
+            continue
+        if utils.ts_files_overlap(matches):
+            wmsg = f"\t   ** Time series files for constituent '{constit}' cover "
+            wmsg += f"overlapping or unrecognized periods, so {var} cannot be "
+            wmsg += "calculated. **\n"
+            wmsg += "\t     Please leave only one set of time series files per "
+            wmsg += "variable in the directory.\n"
+            print(wmsg)
+            continue
+        # End if
+        constit_matches[constit] = [str(f) for f in matches]
     # End for
 
+    # Flattened, in constituent order, for opening as one dataset:
+    constit_files = [f for constit in constit_list
+                     for f in constit_matches.get(constit, [])]
+
     # Check if all the necessary constituent files were found
-    if len(constit_files) != len(constit_list):
+    if len(constit_matches) != len(constit_list):
         ermsg = f"\t   ** Not all constituent files present; {var} cannot be calculated. **\n"
         ermsg += f"\t     Please remove {var} from 'diag_var_list' or find the "
         ermsg += "relevant CAM files.\n"
@@ -209,8 +231,19 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
         # Grab attributes from first constituent file to be used in derived variable
         attrs = ds[constit_list[0]].attrs
 
-        # create new file name for derived variable
-        derived_file = constit_files[0].replace(constit_list[0], var)
+        # create new file name for derived variable.  The derived file holds
+        # every constituent chunk that was just opened, so its name has to
+        # advertise that whole span, not the span of the first chunk alone.
+        # With one file per constituent the span is that file's own dates, so
+        # the name is unchanged from what ADF has always written.
+        first_files = constit_matches[constit_list[0]]
+        derived_file = Path(first_files[0]).name.replace(constit_list[0], var)
+        span = utils.ts_file_span(first_files)
+        if span:
+            old_span = Path(first_files[0]).stem.split(".")[-1]
+            derived_file = derived_file.replace(old_span, f"{span[0]}-{span[1]}")
+        # End if
+        derived_file = str(Path(first_files[0]).parent / derived_file)
 
         # Check if clobber is true for file
         if Path(derived_file).is_file():
@@ -243,8 +276,11 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
         # User-defined defaults might not include aerosol zonal list
         azl = res.get("aerosol_zonal_list", [])
         if var in azl:
+            # PMID and T are chunked the same way the constituents are, so pass
+            # the whole list: taking [0] would multiply a full-span variable by
+            # a single chunk, which time-axis alignment turns silently into NaN.
             # Check if PMID is in file:
-            ds_pmid = self.data.load_dataset(utils.find_ts_files(ts_dir, "*.PMID.*")[0])
+            ds_pmid = self.data.load_dataset(utils.find_ts_files(ts_dir, "*.PMID.*"))
             if not ds_pmid:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'PMID' is in the CAM "
@@ -253,9 +289,10 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
                 dmsg = "derived time series:"
                 dmsg += f"\n\t missing 'PMID' in {ts_dir}, can't make time series for {var} "
                 self.debug_log(dmsg)
+                return
 
             # Check if T is in file:
-            ds_t = self.data.load_dataset(utils.find_ts_files(ts_dir, "*.T.*")[0])
+            ds_t = self.data.load_dataset(utils.find_ts_files(ts_dir, "*.T.*"))
             if not ds_t:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'T' is in the CAM "
@@ -265,6 +302,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
                 dmsg = "derived time series:"
                 dmsg += f"\n\t missing 'T' in {ts_dir}, can't make time series for {var} "
                 self.debug_log(dmsg)
+                return
 
             # Multiply aerosol by dry air density (rho): (P/Rd*T)
             ds[var] = ds[var]*(ds_pmid["PMID"]/(res["Rgas"]*ds_t["T"]))

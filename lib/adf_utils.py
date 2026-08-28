@@ -97,6 +97,43 @@ def find_ts_files(ts_loc, pattern):
     return sorted(ts_loc.glob(pattern)) or sorted(ts_loc.rglob(pattern))
 
 
+def _ts_file_spans(fils):
+    """
+    Parse the {start}-{end} date token out of each time series file name.
+
+    Parameters
+    ----------
+    fils : list
+        strings or paths to time series files
+
+    Returns
+    -------
+    list of tuple or None
+        (start, end) string pairs sorted chronologically, or ``None`` if any
+        name could not be parsed or the dates do not all use the same width.
+        Callers treat ``None`` as "make no promises about these files".
+    """
+    spans = []
+    for fil in fils:
+        #Last dot-separated token of the stem -- second-to-last of the file
+        #name -- e.g. "001001-001112" in "case.cam.h0a.T.001001-001112.nc":
+        date_str = Path(fil).stem.split(".")[-1]
+        start, sep, end = date_str.partition("-")
+        if not sep or not start.isdigit() or not end.isdigit():
+            #Unrecognized name, so make no promises about it:
+            return None
+        spans.append((start, end))
+    #End for
+
+    #Zero-padded dates of equal width sort chronologically as strings, but
+    #mixed widths (e.g. YYYY next to YYYYMM) would not, so bail out on those:
+    if len({len(s) for span in spans for s in span}) != 1:
+        return None
+    #End if
+
+    return sorted(spans)
+
+
 def ts_files_overlap(fils):
     """
     Report whether time series files cover overlapping periods.
@@ -124,32 +161,49 @@ def ts_files_overlap(fils):
     """
     if len(fils) < 2:
         return False
+    #End if
 
-    spans = []
-    for fil in fils:
-        #Second-to-last dot-separated token, e.g. "001001-001112" in
-        #"case.cam.h0a.T.001001-001112.nc":
-        date_str = Path(fil).stem.split(".")[-1]
-        start, sep, end = date_str.partition("-")
-        if not sep or not start.isdigit() or not end.isdigit():
-            #Unrecognized name, so make no promises about it:
-            return True
-        spans.append((start, end))
-    #End for
-
-    #Zero-padded dates of equal width sort chronologically as strings, but
-    #mixed widths (e.g. YYYY next to YYYYMM) would not, so bail out on those:
-    widths = {len(s) for span in spans for s in span}
-    if len(widths) != 1:
+    spans = _ts_file_spans(fils)
+    if spans is None:
         return True
+    #End if
 
-    spans.sort()
     for (_, prev_end), (next_start, _) in zip(spans, spans[1:]):
         if next_start <= prev_end:
             return True
     #End for
 
     return False
+
+
+def ts_file_span(fils):
+    """
+    Report the period covered by a set of time series files, taken together.
+
+    Used to name a file derived from several chunked constituent files: the
+    derived file has to advertise the whole span it actually contains, not the
+    span of whichever chunk happened to sort first.  For a single file this is
+    just that file's own dates, so names are unchanged for the common case.
+
+    Parameters
+    ----------
+    fils : list
+        strings or paths to time series files
+
+    Returns
+    -------
+    tuple of str or None
+        (start, end) as they appear in the file names, or ``None`` if the
+        dates could not be read.
+    """
+    spans = _ts_file_spans(fils)
+    if not spans:
+        return None
+    #End if
+
+    #Sorted by start, so the earliest start leads; take the latest end
+    #explicitly rather than assuming the last entry carries it:
+    return spans[0][0], max(end for _, end in spans)
 
 
 def load_dataset(fils):
