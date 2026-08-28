@@ -234,6 +234,46 @@ class AdfInfoClimoYrsTestRoutine(unittest.TestCase):
 
             self.assertEqual((syr, eyr), (100, 104))
 
+    def test_configured_stream_beats_flat_file_from_another_stream(self):
+
+        """
+        The configured stream outranks the search order.
+
+        A stray flat file from some other h0 stream must not beat the
+        configured stream's file just because the configured one happens to
+        sit in a sub-directory: 'hist_str' is what the user asked for, and the
+        loose "any h0 stream" pattern is only a fallback.
+        """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_ts(Path(tmpdir) / "case.cam.h0b.T.010001-010512.nc",
+                      "T", 100, 5)
+            _write_ts(Path(tmpdir) / "atm" / "proc" / "tseries" / "month_1"
+                      / "case.cam.h0a.T.020001-021012.nc", "T", 200, 10)
+
+            syr, eyr = _call(_StubInfo(["T"]), tmpdir, "case",
+                             hist_str="cam.h0a")
+
+            self.assertEqual((syr, eyr), (200, 209))
+
+    def test_nested_layout_does_not_flood_the_debug_log(self):
+
+        """
+        A nested archive is a supported layout, not a problem.  Reporting
+        every variable in 'diag_var_list' as missing on the way to finding it
+        would bury the real messages in a long run.
+        """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_ts(Path(tmpdir) / "atm" / "proc" / "tseries" / "month_1"
+                      / "case.cam.h0a.T.000101-002012.nc", "T", 1, 20)
+
+            stub = _StubInfo(["T", "PRECT", "PS", "U", "V"])
+            syr, eyr = _call(stub, tmpdir, "case", hist_str="cam.h0a")
+
+            self.assertEqual((syr, eyr), (1, 20))
+            self.assertEqual(stub.messages, [])
+
     def test_chunked_files_span_all_chunks(self):
 
         """

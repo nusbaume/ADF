@@ -880,38 +880,46 @@ class AdfInfo(AdfConfig):
                     + [f"{case_name}*h0*.{var}.*nc"])
         #End def
 
-        #Sweep every variable flat before trying a recursive search: a missing
-        #variable is normal, and recursing per pattern would walk the whole
-        #tree len(patterns) x len(var_list) times before the first hit.
+        #Sweep by pattern rank rather than by variable: every variable is tried
+        #against the configured stream before any variable is tried against the
+        #looser fallback, so a stray file from another stream cannot outrank
+        #the stream the user actually configured.  Within a rank, the flat
+        #search comes first for every variable and the recursive one only
+        #afterwards -- a missing variable is normal, and recursing per pattern
+        #would walk the whole tree once for every pattern tried.
+        n_ranks = len(hist_strs) + 1
         ts_files = []
-        for var in var_list:
-            for pattern in ts_patterns(var):
-                ts_files = utils.find_ts_files(input_location, pattern, recursive=False)
-                if ts_files:
-                    break
-            #End for
-            if ts_files:
-                break
-            #End if
-            logmsg = "get years for time series:"
-            logmsg += f"\n\tVar '{var}' not in dataset, skip to next to try and find climo years..."
-            self.debug_log(logmsg)
-        #End for
-
-        #Nothing sitting flat in the directory, so the files may be in a nested
-        #(GenTS-style) layout.  One recursive sweep, not one per pattern:
-        if not ts_files:
-            for var in var_list:
-                for pattern in ts_patterns(var):
-                    ts_files = utils.find_ts_files(input_location, pattern)
+        skipped = var_list
+        for rank in range(n_ranks):
+            for recursive in (False, True):
+                for idx, var in enumerate(var_list):
+                    ts_files = utils.find_ts_files(input_location,
+                                                   ts_patterns(var)[rank],
+                                                   recursive=recursive)
                     if ts_files:
+                        #Everything ahead of it was tried and missed:
+                        skipped = var_list[:idx]
                         break
+                    #End if
                 #End for
                 if ts_files:
                     break
                 #End if
             #End for
-        #End if
+            if ts_files:
+                break
+            #End if
+        #End for
+
+        #Report only the variables that were genuinely passed over.  Logging
+        #inside the sweep would name every variable in diag_var_list whenever
+        #the files turned out to be in a nested layout, which is not a problem
+        #and not worth dozens of lines of debug log.
+        for var in skipped:
+            logmsg = "get years for time series:"
+            logmsg += f"\n\tVar '{var}' not in dataset, skip to next to try and find climo years..."
+            self.debug_log(logmsg)
+        #End for
 
         if not ts_files:
             errmsg = f"\t ERROR: No time series files found in '{input_ts_loc}' for case "
