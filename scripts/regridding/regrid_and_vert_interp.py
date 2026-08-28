@@ -85,8 +85,10 @@ def regrid_and_vert_interp(adf):
             regridded_da = _handle_horizontal_regridding(model_da, ref_ds, output_loc)
             regridded_da.attrs.update(original_attrs)
             # --- Vertical Interpolation ---
-            # pass the Dataset: the hyam/hybm fallback check needs the other variables
-            vert_type = _determine_vertical_coord_type(model_ds)
+            # pass the Dataset: the hyam/hybm fallback check needs the other
+            # variables.  Pass the DataArray too, so a 2-D field is not treated
+            # as a model-level one just because its file carries hybrid coefficients.
+            vert_type = _determine_vertical_coord_type(model_ds, regridded_da)
             ps_da = None
             pres_da = None
             if vert_type in ('hybrid', 'height'):
@@ -276,7 +278,7 @@ def _write_reference_files(adf, var_list, var_defaults, output_loc, overwrite):
         original_attrs = ref_da.attrs.copy()
 
         # --- Vertical Interpolation (no horizontal regrid: this IS the target grid) ---
-        vert_type = _determine_vertical_coord_type(ref_ds)
+        vert_type = _determine_vertical_coord_type(ref_ds, ref_da)
         ps_da = None
         pres_da = None
         if vert_type in ('hybrid', 'height'):
@@ -365,20 +367,33 @@ def _handle_horizontal_regridding(source_da, target_grid, regrid_loc, method='co
     return regridder(source_da)
 
 
-def _determine_vertical_coord_type(dset):
+def _determine_vertical_coord_type(dset, da=None):
     """
     Determines the type of vertical coordinate in a dataset.
 
     Parameters
     ----------
     dset : xarray.Dataset
-        The dataset to inspect.
+        The dataset to inspect.  The whole dataset is needed because the
+        hyam/hybm fallback check looks at the other variables in the file.
+    da : xarray.DataArray, optional
+        The variable actually being interpolated.  When given, a variable with
+        no vertical dimension of its own reports 'none' even if the dataset it
+        came from carries one.  This matters for time series written by GenTS,
+        which copies every non-time-varying variable -- ``lev``, ``ilev``,
+        ``hyam``, ``hybm`` -- into *every* file, so a 2-D field such as TS
+        arrives in a dataset that has a ``lev`` dimension it does not use.
 
     Returns
     -------
     str
         The vertical coordinate type: 'hybrid', 'height', 'pressure', or 'none'.
     """
+
+    #The variable's own dimensions decide whether it needs interpolating:
+    if da is not None and not ({'lev', 'ilev'} & set(da.dims)):
+        return 'none'
+    #End if
 
     if 'lev' in dset.dims or 'ilev' in dset.dims:
         lev_coord_name = 'lev' if 'lev' in dset.dims else 'ilev'
