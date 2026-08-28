@@ -7,8 +7,12 @@ correlation leave [-1, 1].
 import sys
 from pathlib import Path
 
-import numpy as np
-import xarray as xr
+import pytest
+
+# CI installs only pyyaml and pytest (see .github/workflows/ADF_unit_tests.yaml),
+# so skip rather than fail collection when the science stack is absent.
+np = pytest.importorskip("numpy")
+xr = pytest.importorskip("xarray")
 
 sys.path.append(str(Path(__file__).parents[3] / "scripts" / "plotting"))
 sys.path.append(str(Path(__file__).parents[2]))
