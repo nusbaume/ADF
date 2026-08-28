@@ -328,8 +328,22 @@ class AdfDiag(AdfWeb):
         Return the per-case configuration used by the time series step.
 
         Gathered in one place so that the built-in ("adf") and the GenTS back
-        ends cannot drift apart in how they read the config file.  Every value
-        is a list with one entry per case, baseline included.
+        ends cannot drift apart in how they read the config file.
+
+        Parameters
+        ----------
+        baseline : bool, optional
+            If ``True``, read the baseline case's settings; otherwise read the
+            test cases'.  Default is ``False``.
+
+        Returns
+        -------
+        dict
+            Keys ``case_names``, ``cam_ts_done``, ``cam_hist_locs``,
+            ``ts_dirs``, ``overwrite_ts``, ``start_years``, ``end_years`` and
+            ``hist_str_list``, each a list with one entry per case, plus
+            ``case_type_string``, a str used in messages ("case" or
+            "baseline").
         """
 
         # Check if baseline time-series files are being created:

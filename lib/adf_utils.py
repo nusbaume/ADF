@@ -91,7 +91,8 @@ def find_ts_files(ts_loc, pattern):
 
     Returns
     -------
-    list of Path, sorted; empty if nothing matches.
+    list of Path
+        Matching files, sorted; empty if nothing matches.
     """
     ts_loc = Path(ts_loc)
     return sorted(ts_loc.glob(pattern)) or sorted(ts_loc.rglob(pattern))

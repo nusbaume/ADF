@@ -121,8 +121,36 @@ def create_time_series_gents(adf, baseline=False):
     """
     Generate ADF time series files using GenTS.
 
-    Drop-in alternative to 'AdfDiag.create_time_series'; see this module's
-    docstring for how the two back ends line up.
+    Drop-in alternative to :meth:`AdfDiag.create_time_series`; see this
+    module's docstring for how the two back ends line up.
+
+    Parameters
+    ----------
+    adf : AdfDiag
+        The diagnostics object holding the configuration information.
+    baseline : bool, optional
+        If ``True``, generate the baseline case's time series; otherwise
+        generate the test cases'.  Default is ``False``.
+
+    Returns
+    -------
+    None
+        Writes time series files into each case's ``cam_ts_loc``.
+
+    Raises
+    ------
+    AdfError
+        If GenTS is not installed, if ``gents_compression`` was given without
+        ``gents_compression_level``, if a history file directory is missing,
+        or if ``PS`` is absent from ``diag_var_list`` while model-level
+        variables are being diagnosed.
+
+    Notes
+    -----
+    Uses ``adf.get_basic_info``, ``adf.get_ts_case_config``,
+    ``adf.diag_var_list``, ``adf.variable_defaults``, ``adf.num_procs``,
+    ``adf.user`` and ``adf.end_diag_fail``, plus ``check_derive`` and
+    ``derive_variable`` from :mod:`adf_derive`.
     """
 
     HFCollection, TSCollection = _import_gents()
