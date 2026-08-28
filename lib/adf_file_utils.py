@@ -17,7 +17,7 @@ ts_file_span(fils)
 
 Notes
 -----
-Re-exported by adf_utils, so `utils.find_ts_files(...)` keeps working for
+Re-exported by adf_utils, so ``utils.find_ts_files(...)`` keeps working for
 every existing caller.
 """
 
@@ -26,12 +26,12 @@ from pathlib import Path
 
 def find_ts_files(ts_loc, pattern, recursive=True):
     """
-    Locate time series files matching `pattern` underneath `ts_loc`.
+    Locate time series files matching ``pattern`` underneath ``ts_loc``.
 
-    Searches `ts_loc` itself first, which is where ADF's own time series step
+    Searches ``ts_loc`` itself first, which is where ADF's own time series step
     and a flat GenTS run both put their files.  Only if that finds nothing does
     it fall back to a recursive search, so that a GenTS archive laid out as
-    <component>/proc/tseries/<frequency>/ can be used by pointing `cam_ts_loc`
+    <component>/proc/tseries/<frequency>/ can be used by pointing ``cam_ts_loc``
     at the top of the tree instead of the frequency sub-directory.
 
     Parameters
@@ -102,7 +102,7 @@ def ts_files_overlap(fils):
     Report whether time series files cover overlapping periods.
 
     ADF and GenTS both name time series files
-    `{case}.{stream}.{variable}.{start}-{end}.nc`, where the dates are
+    ``{case}.{stream}.{variable}.{start}-{end}.nc``, where the dates are
     zero-padded and all use the same width for a given variable.  A variable
     split into consecutive chunks (e.g. 001001-001912 then 002001-002912) can
     safely be opened together; two overlapping sets (e.g. years 1-20 alongside
