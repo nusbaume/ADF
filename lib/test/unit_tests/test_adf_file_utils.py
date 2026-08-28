@@ -1,6 +1,6 @@
 """
 Collection of python unit tests
-for the "adf_utils" helper functions.
+for the "adf_file_utils" time series file discovery helpers.
 """
 
 #+++++++++++++++++++++++
@@ -21,20 +21,15 @@ _ADF_LIB_DIR = os.path.join(_CURRDIR, os.pardir, os.pardir)
 #Add ADF "lib" directory to python path:
 sys.path.append(_ADF_LIB_DIR)
 
-#adf_utils pulls in the scientific stack (xarray, geocat, ...), which isn't
-#always present in a bare test environment, so skip rather than error there:
-try:
-    from adf_utils import find_ts_files, ts_files_overlap, ts_file_span
-    _HAS_ADF_UTILS = True
-except ImportError:
-    _HAS_ADF_UTILS = False
+#adf_file_utils imports nothing but pathlib, so these run in CI, where only
+#PyYAML and pytest are installed:
+from adf_file_utils import find_ts_files, ts_files_overlap, ts_file_span
 
-#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#Main adf_utils testing routine, used when script is run directly
-#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#Main adf_file_utils testing routine, used when script is run directly
+#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-@unittest.skipUnless(_HAS_ADF_UTILS, "adf_utils dependencies not available")
-class AdfUtilsTestRoutine(unittest.TestCase):
+class AdfFileUtilsTestRoutine(unittest.TestCase):
 
     """
     Unit tests for the time series file search helper, which has to cope with
