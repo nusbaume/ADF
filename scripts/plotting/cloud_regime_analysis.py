@@ -869,7 +869,13 @@ def plot_rfo_maps(test_labels, ref_labels, adf, field, plot_loc, case_name):
 
         # 3. Difference RFO (regrid if necessary)
         if rfo_ref.shape != rfo_test.shape:
-            rfo_ref = rfo_ref.interp_like(rfo_test, method="nearest")
+            # extrapolate: the two grids rarely share endpoints -- the MISR obs run
+            # from -179.5 to 179.5 while CAM has a column at exactly -180 -- and the
+            # default fill leaves that column NaN, drawing a blank meridian across
+            # the difference map. For nearest-neighbour this just takes the closest
+            # cell, which across the dateline is the right one anyway.
+            rfo_ref = rfo_ref.interp_like(rfo_test, method="nearest",
+                                          kwargs={"fill_value": "extrapolate"})
         
         rfo_diff = rfo_test - rfo_ref
         total_rfo_diff = total_rfo_test - total_rfo_ref
