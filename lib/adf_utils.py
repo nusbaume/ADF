@@ -3,6 +3,8 @@ Generic computation helper functions
 
 Functions
 ---------
+find_ts_files(), ts_files_overlap(), ts_file_span()
+    re-exported from adf_file_utils; time series file discovery
 load_dataset()
     generalized load dataset method used for plotting/analysis functions
 mask_land_or_ocean(arr, msk, use_nan=False)
@@ -50,6 +52,13 @@ import pandas as pd
 import geocat.comp as gcomp
 
 from adf_base import AdfError
+
+#Time series file discovery lives in its own module so that it can be unit
+#tested without importing the scientific stack (see adf_file_utils).  Re-export
+#here so `utils.find_ts_files(...)` keeps working for every existing caller:
+# pylint: disable=unused-import
+from adf_file_utils import find_ts_files, ts_files_overlap, ts_file_span
+# pylint: enable=unused-import
 
 import warnings  # use to warn user about missing files.
 

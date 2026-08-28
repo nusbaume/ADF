@@ -44,6 +44,7 @@ import xarray as xr
 # pylint: enable=unused-import
 
 #ADF modules:
+import adf_utils as utils
 from adf_config import AdfConfig
 from adf_base   import AdfError
 
@@ -211,7 +212,7 @@ class AdfInfo(AdfConfig):
 
                 #Get years from pre-made timeseries file(s)
                 found_syear_baseline, found_eyear_baseline = self.get_climo_yrs_from_ts(
-                    input_ts_loc, data_name)
+                    input_ts_loc, data_name, hist_str=baseline_hist_str)
 
                 #History file path isn't needed if user is running ADF directly on time series.
                 #So make sure start and end year are specified:
@@ -416,7 +417,8 @@ class AdfInfo(AdfConfig):
                 print(f"Checking existing time-series files in {input_ts_loc}")
 
                 #Get years from pre-made timeseries file(s)
-                found_syear, found_eyear = self.get_climo_yrs_from_ts(input_ts_loc, case_name)
+                found_syear, found_eyear = self.get_climo_yrs_from_ts(
+                    input_ts_loc, case_name, hist_str=self.__hist_str[case_idx])
 
                 #History file path isn't needed if user is running ADF directly on time series.
                 #So make sure start and end year are specified:
@@ -846,10 +848,21 @@ class AdfInfo(AdfConfig):
     #########
 
     # Utility function to grab climo years from pre-made time series files:
-    def get_climo_yrs_from_ts(self, input_ts_loc, case_name):
+    def get_climo_yrs_from_ts(self, input_ts_loc, case_name, hist_str=None):
         """
         Grab start and end climo years if none are specified in config file
         for pre-made time series file(s)
+
+        Parameters
+        ----------
+        input_ts_loc
+            directory holding the pre-made time series files
+        case_name
+            name of the case whose files should be searched for
+        hist_str : str or list, optional
+            history stream(s) configured for this case.  When given, the
+            stream is used in the search; when absent the older, looser
+            "any h0 stream" search is used instead.
 
         Return
         ------
@@ -868,17 +881,71 @@ class AdfInfo(AdfConfig):
             errmsg = f"\t ERROR: Time series directory '{input_ts_loc}' not found.  Script is exiting."
             raise AdfError(errmsg)
 
+        #Normalize the configured history stream(s) into a list:
+        if not hist_str:
+            hist_strs = []
+        elif isinstance(hist_str, str):
+            hist_strs = [hist_str]
+        else:
+            hist_strs = [h for h in hist_str if h]
+        #End if
+
         # Search for first available variable in var_list to get a time series file to read
         # NOTE: it is assumed all the variables have the same dates!
-        # Also, it is assumed that only h0 files should be climo-ed.
-        for var in var_list:
-            ts_files = sorted(input_location.glob(f"{case_name}*h0*.{var}.*nc"))
+        # Try the configured stream(s) first, then the older, looser search
+        # (any h0 stream) so pre-existing directories still work:
+        def ts_patterns(var):
+            """Search patterns for one variable, most specific first."""
+            return ([f"{case_name}.{hstr}.{var}.*nc" for hstr in hist_strs]
+                    + [f"{case_name}*h0*.{var}.*nc"])
+        #End def
+
+        #Sweep by pattern rank rather than by variable: every variable is tried
+        #against the configured stream before any variable is tried against the
+        #looser fallback, so a stray file from another stream cannot outrank
+        #the stream the user actually configured.  Within a rank, the flat
+        #search comes first for every variable and the recursive one only
+        #afterwards -- a missing variable is normal, and recursing per pattern
+        #would walk the whole tree once for every pattern tried.
+        n_ranks = len(hist_strs) + 1
+        ts_files = []
+        skipped = var_list
+        for rank in range(n_ranks):
+            for recursive in (False, True):
+                for idx, var in enumerate(var_list):
+                    ts_files = utils.find_ts_files(input_location,
+                                                   ts_patterns(var)[rank],
+                                                   recursive=recursive)
+                    if ts_files:
+                        #Everything ahead of it was tried and missed:
+                        skipped = var_list[:idx]
+                        break
+                    #End if
+                #End for
+                if ts_files:
+                    break
+                #End if
+            #End for
             if ts_files:
                 break
-            else:
-                logmsg = "get years for time series:"
-                logmsg += f"\n\tVar '{var}' not in dataset, skip to next to try and find climo years..."
-                self.debug_log(logmsg)
+            #End if
+        #End for
+
+        #Report only the variables that were genuinely passed over.  Logging
+        #inside the sweep would name every variable in diag_var_list whenever
+        #the files turned out to be in a nested layout, which is not a problem
+        #and not worth dozens of lines of debug log.
+        for var in skipped:
+            logmsg = "get years for time series:"
+            logmsg += f"\n\tVar '{var}' not in dataset, skip to next to try and find climo years..."
+            self.debug_log(logmsg)
+        #End for
+
+        if not ts_files:
+            errmsg = f"\t ERROR: No time series files found in '{input_ts_loc}' for case "
+            errmsg += f"'{case_name}' for any variable in 'diag_var_list'.  Script is exiting."
+            raise AdfError(errmsg)
+        #End if
 
         #Read in file(s)
         if len(ts_files) == 1:
