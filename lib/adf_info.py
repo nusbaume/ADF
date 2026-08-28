@@ -872,14 +872,21 @@ class AdfInfo(AdfConfig):
 
         # Search for first available variable in var_list to get a time series file to read
         # NOTE: it is assumed all the variables have the same dates!
+        # Try the configured stream(s) first, then the older, looser search
+        # (any h0 stream) so pre-existing directories still work:
+        def ts_patterns(var):
+            """Search patterns for one variable, most specific first."""
+            return ([f"{case_name}.{hstr}.{var}.*nc" for hstr in hist_strs]
+                    + [f"{case_name}*h0*.{var}.*nc"])
+        #End def
+
+        #Sweep every variable flat before trying a recursive search: a missing
+        #variable is normal, and recursing per pattern would walk the whole
+        #tree len(patterns) x len(var_list) times before the first hit.
         ts_files = []
         for var in var_list:
-            #Try the configured stream(s) first, then fall back to the older,
-            #looser search (any h0 stream) so pre-existing directories still work:
-            patterns = [f"{case_name}.{hstr}.{var}.*nc" for hstr in hist_strs]
-            patterns.append(f"{case_name}*h0*.{var}.*nc")
-            for pattern in patterns:
-                ts_files = utils.find_ts_files(input_location, pattern)
+            for pattern in ts_patterns(var):
+                ts_files = utils.find_ts_files(input_location, pattern, recursive=False)
                 if ts_files:
                     break
             #End for
@@ -890,6 +897,21 @@ class AdfInfo(AdfConfig):
             logmsg += f"\n\tVar '{var}' not in dataset, skip to next to try and find climo years..."
             self.debug_log(logmsg)
         #End for
+
+        #Nothing sitting flat in the directory, so the files may be in a nested
+        #(GenTS-style) layout.  One recursive sweep, not one per pattern:
+        if not ts_files:
+            for var in var_list:
+                for pattern in ts_patterns(var):
+                    ts_files = utils.find_ts_files(input_location, pattern)
+                    if ts_files:
+                        break
+                #End for
+                if ts_files:
+                    break
+                #End if
+            #End for
+        #End if
 
         if not ts_files:
             errmsg = f"\t ERROR: No time series files found in '{input_ts_loc}' for case "

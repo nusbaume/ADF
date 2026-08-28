@@ -72,7 +72,7 @@ seasons = {"ANN": np.arange(1,13,1),
 #HELPER FUNCTIONS
 #################
 
-def find_ts_files(ts_loc, pattern):
+def find_ts_files(ts_loc, pattern, recursive=True):
     """
     Locate time series files matching `pattern` underneath `ts_loc`.
 
@@ -88,6 +88,12 @@ def find_ts_files(ts_loc, pattern):
         directory to search
     pattern : str
         glob pattern, e.g. "case.cam.h0a.T.*nc"
+    recursive : bool, optional
+        Whether to fall back to a recursive search when the flat one finds
+        nothing.  Default is ``True``.  A missing variable is a normal
+        condition, so a caller trying many patterns in a row should pass
+        ``False`` and make a single recursive attempt at the end rather than
+        walking the whole tree once per pattern.
 
     Returns
     -------
@@ -95,7 +101,11 @@ def find_ts_files(ts_loc, pattern):
         Matching files, sorted; empty if nothing matches.
     """
     ts_loc = Path(ts_loc)
-    return sorted(ts_loc.glob(pattern)) or sorted(ts_loc.rglob(pattern))
+    found = sorted(ts_loc.glob(pattern))
+    if found or not recursive:
+        return found
+    #End if
+    return sorted(ts_loc.rglob(pattern))
 
 
 def _ts_file_spans(fils):

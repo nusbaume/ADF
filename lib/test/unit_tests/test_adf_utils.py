@@ -104,6 +104,40 @@ class AdfUtilsTestRoutine(unittest.TestCase):
 
             self.assertEqual(find_ts_files(tmpdir, "case.cam.h0a.PRECT.*nc"), [])
 
+    def test_find_ts_files_no_recurse(self):
+
+        """
+        With recursive=False a nested file is not found, so a caller sweeping
+        many patterns can avoid walking the whole tree for each one.
+        """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subdir = os.path.join(tmpdir, "atm", "proc", "tseries", "month_1")
+            os.makedirs(subdir)
+            fname = "case.cam.h0a.T.000101-001112.nc"
+            open(os.path.join(subdir, fname), "w").close()
+
+            self.assertEqual(
+                find_ts_files(tmpdir, "case.cam.h0a.T.*nc", recursive=False), [])
+            #...but the default still finds it:
+            self.assertEqual(
+                [f.name for f in find_ts_files(tmpdir, "case.cam.h0a.T.*nc")], [fname])
+
+    def test_find_ts_files_no_recurse_still_finds_flat(self):
+
+        """
+        recursive=False must not change the flat case, which is what ADF's own
+        time series step and a flat GenTS run both produce.
+        """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fname = "case.cam.h0a.T.000101-001112.nc"
+            open(os.path.join(tmpdir, fname), "w").close()
+
+            found = find_ts_files(tmpdir, "case.cam.h0a.T.*nc", recursive=False)
+
+            self.assertEqual([f.name for f in found], [fname])
+
     def test_ts_files_overlap_consecutive(self):
 
         """
