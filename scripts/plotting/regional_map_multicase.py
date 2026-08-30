@@ -101,7 +101,7 @@ def regional_map_multicase(adfobj):
     #
     # Determine the list of variables to use (defaults to ADF's diag_var_list)
     #
-    var_list = regional_opts.get("region_variables", adfobj.diag_var_list)
+    var_list = regional_opts.get("region_variables", adfobj.plot_var_list)
     #
     # LOOP OVER VARIABLES
     #
@@ -369,7 +369,10 @@ def regional_map_multicase_plot(adf, datadict, opt=None):
         #
         # to do: check opt for all the things: cmap, contour levels, etc.
         #
-        popts = prep_contour_plot(datadict[xreg], datadict[xreg], datadict[xreg] - datadict[xreg], **opt)
+        #prep_contour_plot takes (a, b, difference, percent difference); this
+        #panel only draws the field itself, so the last three are placeholders.
+        zeros = datadict[xreg] - datadict[xreg]
+        popts = prep_contour_plot(datadict[xreg], datadict[xreg], zeros, zeros, **opt)
         popts2 = {
             **popts["contourf_opt"],
             "cmap": popts["cmap1"],

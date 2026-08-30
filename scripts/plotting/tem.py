@@ -11,6 +11,90 @@ import adf_utils as utils
 import warnings  # use to warn user about missing files.
 warnings.formatwarning = utils.my_formatwarning
 
+#Constants for the potential temperature -> temperature conversion:
+P0 = 1.0e5              # reference pressure, Pa
+KAPPA = 287.0 / 1004.0  # R_dry / cp_dry
+
+
+def _zonal_mean_pressure(adf, case_name, like, season):
+    """Season-averaged zonal mean pressure (Pa) on the TEM grid, or None.
+
+    The ADF prefers the model's own PMID over pressure reconstructed from the
+    hybrid coefficients: PMID is what the model actually used, and for the
+    dry-mass vertical coordinate in recent CAM/WACCM the hybrid 'lev' is not the
+    pressure at all.  This is the same rule _find_pressure_field applies in
+    regrid_and_vert_interp.py.  TEM output lives on layer midpoints, so PMID is
+    the right field (PINT would be the interface equivalent).
+
+    'case_name' selects a test case, or None for the baseline.  'like' is the
+    field being converted; the result is put on its zalat and lev.  Returns None
+    when PMID is unavailable, leaving the caller to fall back.
+    """
+    if case_name is None:
+        fils = adf.data.get_ref_timeseries_file("PMID")
+    else:
+        fils = adf.data.get_timeseries_file(case_name, "PMID")
+    #End if
+    if not fils:
+        return None
+    ds_pmid = adf.data.load_timeseries_dataset(fils)
+    if ds_pmid is None or "PMID" not in ds_pmid:
+        return None
+    pmid = ds_pmid["PMID"]
+
+    #CAM writes PMID in Pa; convert here, before the arithmetic below drops attrs.
+    if str(pmid.attrs.get("units", "Pa")).lower() in ("hpa", "mb", "millibars"):
+        pmid = pmid * 100.0
+    #End if
+
+    #Weight by month length, matching how the TEM fields are averaged:
+    month_length = pmid.time.dt.days_in_month
+    if season == "ANN":
+        weights = month_length / month_length.sum()
+        pmid = (pmid * weights).sum(dim="time")
+    else:
+        grouped = month_length.groupby("time.season")
+        weights = grouped / grouped.sum()
+        pmid = ((pmid * weights).groupby("time.season").sum(dim="time")
+                .sel(season=season))
+    #End if
+
+    #Zonal mean, then onto the TEM latitude/level grid. The TEM output is on
+    #its own grid (WACCM writes the zonal-mean stream on the interface levels),
+    #so PMID generally has to be interpolated in both lat and lev, not just lat.
+    if "lon" in pmid.dims:
+        pmid = pmid.mean(dim="lon")
+    #Interpolating onto a target named 'zalat' renames the dimension for us:
+    target_lat = xr.DataArray(like["zalat"].values, dims="zalat",
+                              coords={"zalat": like["zalat"].values})
+    pmid = pmid.interp(lat=target_lat, method="linear",
+                       kwargs={"fill_value": "extrapolate"})
+    if pmid.sizes.get("lev") != like.sizes.get("lev"):
+        pmid = pmid.interp(lev=like["lev"], method="linear",
+                           kwargs={"fill_value": "extrapolate"})
+    #End if
+
+    return pmid
+
+
+def _to_temperature(adf, case_name, theta, season):
+    """Potential temperature -> temperature, using PMID when it is available."""
+    pres = _zonal_mean_pressure(adf, case_name, theta, season)
+    if pres is None:
+        #'lev' is only the true pressure for a hybrid-sigma coordinate; on the
+        #dry-mass coordinate used by recent CAM/WACCM it is not, so say so
+        #rather than quietly producing a slightly wrong temperature.
+        label = case_name if case_name else "the baseline"
+        warnings.warn(f"\t    WARNING: no PMID found for {label}, converting THZM "
+                      "with the hybrid 'lev' coordinate instead. Add 'PMID' to "
+                      "'diag_var_list' for the exact conversion.")
+        pres = theta['lev'] * 100.0
+    #End if
+    temperature = theta * (pres / P0) ** KAPPA
+    temperature.attrs['units'] = "K"
+    return temperature
+
+
 def tem(adf):
     """
     Plot the contents of the TEM dignostic ouput of 2-D latitude vs vertical pressure maps.
@@ -285,17 +369,14 @@ def tem(adf):
                         oseasons = oseasons / wgt_denom_base
 
                 # Derive zonal mean temperature from potential temperature.
-                # 'lev' is the same pressure coordinate calc_tem uses for every
-                # other TEM quantity, so use it here rather than reading a
-                # separate PMID time series on a different vertical grid.
                 if var == "THZM":
-                    p0 = 1.0e5                     # reference pressure, Pa
-                    kappa = 287.0 / 1004.0         # R_dry / cp_dry
-                    exner = ((mseasons['lev'] * 100.0) / p0) ** kappa
-                    mseasons = mseasons * exner
-                    oseasons = oseasons * exner
-                    mseasons.attrs['units'] = "K"
-                    oseasons.attrs['units'] = "K"
+                    #Each side is converted with its own pressure; the test case
+                    #and the baseline need not share a vertical coordinate.
+                    mseasons = _to_temperature(adf, case_name, mseasons, s)
+                    if not obs:
+                        oseasons = _to_temperature(adf, None, oseasons, s)
+                    #End if
+                #End if
 
                 if var == "UTENDEPFD":
                     mseasons = mseasons*1000

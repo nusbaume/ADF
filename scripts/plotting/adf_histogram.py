@@ -57,7 +57,7 @@ seasons = {"ANN": np.arange(1,13,1),
             "SON": [9, 10, 11]}
 
 def adf_histogram(adfobj):
-    var_list = adfobj.diag_var_list
+    var_list = adfobj.plot_var_list
 
     if use_time_series:
         load_ref_func = adfobj.data.load_reference_timeseries_da # field [this is a mistake, the args should have been the same for all of these functions]

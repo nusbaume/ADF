@@ -24,6 +24,13 @@
 #                         Currently only accepts "ocean", which means the variable will be masked
 #                         everywhere that isn't open ocean.
 #
+# plot_diagnostics     -> Set to False for a support variable: one the ADF needs as an input to
+#                         other diagnostics but which should not get plots of its own.  PMID is
+#                         the standard case -- it is needed for vertical interpolation and for
+#                         the aerosol derivations, and the ADF adds it to "diag_var_list" on its
+#                         own, so a user who never asked for it would otherwise get a set of
+#                         pressure plots.  Defaults to True.
+#
 #
 # OBSERVATIONS:
 #
@@ -1952,6 +1959,9 @@ PINT:
 
 PMID:
   category: "State"
+  #Needed for vertical interpolation and the aerosol derivations, and added to
+  #'diag_var_list' automatically, but not a diagnostic anyone asks to see.
+  plot_diagnostics: False
   pct_diff_contour_levels: [-100,-75,-50,-40,-30,-20,-10,-8,-6,-4,-2,0,2,4,6,8,10,20,30,40,50,75,100]
   pct_diff_colormap: "PuOr_r"
 

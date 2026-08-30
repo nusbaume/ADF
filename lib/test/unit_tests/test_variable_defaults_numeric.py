@@ -76,3 +76,29 @@ def test_numeric_settings_parse_as_numbers():
 def test_detector_catches_the_yaml_float_trap(text, expected_numeric):
     """The check above is only useful if it actually flags the bare-exponent form."""
     assert (not _numeric_offenders(yaml.safe_load(text))) is expected_numeric
+
+
+def test_pmid_is_declared_a_support_variable():
+    """PMID is added to 'diag_var_list' by the ADF itself (adf_derive adds it for
+    the aerosol calculations, and the vertical interpolation needs it), so a user
+    who never asked for it would otherwise get a set of pressure plots.  The
+    plotting scripts skip it via AdfObs.plot_var_list, which reads this flag.
+
+    Only the declaration is checked here: importing AdfObs pulls in xarray, which
+    the lint/test CI environment does not install, so a test that imported it
+    would silently skip instead of running.
+    """
+    defaults = yaml.safe_load(DEFAULTS_FILE.read_text())
+    assert "PMID" in defaults, "PMID lost its variable_defaults entry"
+    assert defaults["PMID"].get("plot_diagnostics") is False, (
+        "PMID must declare 'plot_diagnostics: False' or the ADF will plot the "
+        "pressure field it adds to diag_var_list on the user's behalf"
+    )
+
+
+def test_plot_diagnostics_is_documented():
+    """The key is only discoverable if the header block explains it."""
+    header = DEFAULTS_FILE.read_text().split("PMID:")[0]
+    assert "plot_diagnostics" in header, (
+        "document 'plot_diagnostics' in the header of adf_variable_defaults.yaml"
+    )
