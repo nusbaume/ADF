@@ -4,10 +4,7 @@ import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import metpy.calc.thermo as thermo
-from metpy.units import units
-
-import plotting_functions as pf
+import plotting_utils as plot_utils
 
 #Format warning messages:
 import adf_utils as utils
@@ -35,12 +32,13 @@ def tem(adf):
 
     #Special ADF variable which contains the output paths for
     #all generated plots and tables for each case:
-    plot_location = Path(adf.plot_location[0])
+    plot_locations = [Path(loc) for loc in adf.plot_location]
 
-    #Check if plot output directory exists, and if not, then create it:
-    if not plot_location.is_dir():
-        print(f"    {plot_location} not found, making new directory")
-        plot_location.mkdir(parents=True)
+    #Check if plot output directories exist, and if not, then create them:
+    for plot_loc in plot_locations:
+        if not plot_loc.is_dir():
+            print(f"    {plot_loc} not found, making new directory")
+            plot_loc.mkdir(parents=True)
 
     #CAM simulation variables (this is always assumed to be a list):
     case_names = adf.get_cam_info("cam_case_name", required=True)
@@ -117,9 +115,6 @@ def tem(adf):
     else:
         var_list = ["UZM","THZM","EPFY","EPFZ","VTEM","WTEM","PSITEM","UTENDEPFD"]
 
-    #Baseline TEM location
-    input_loc_idx = Path(tem_base_loc)
-
     #Check if comparing against obs
     if adf.compare_obs:
         obs = True
@@ -129,6 +124,8 @@ def tem(adf):
     else:
         #Set TEM file for baseline
         base_file_name = f'{base_name}.TEMdiag_{syear_baseline}-{eyear_baseline}.nc'
+        #Baseline TEM location ('cam_tem_loc' is unset when comparing to obs)
+        input_loc_idx = Path(tem_base_loc)
     
     #Set full path for baseline/obs file
     tem_base = input_loc_idx / base_file_name
@@ -152,44 +149,53 @@ def tem(adf):
         warnings.warn("\t    INFO: Timeseries file does not have time bounds info.")"""
     ds_base = xr.decode_cf(ds_base)
 
-    input_ts_locs = adf.get_cam_info("cam_ts_loc", required=True)
+    #Open each test case's TEM file once, up front, so a missing file is reported
+    #before any plotting work is done:
+    case_datasets = []
+    for idx,case_name in enumerate(case_names):
+        tem_case = Path(tem_case_locs[idx]) / \
+                   f'{case_name}.TEMdiag_{syear_cases[idx]}-{eyear_cases[idx]}.nc'
+        if not tem_case.is_file():
+            print(f"\t'{tem_case}' does not exist. TEM plots will be skipped.")
+            return
+        ds = xr.open_dataset(tem_case, decode_times=False)
+        if 'time_bnds' in ds:
+            t = ds['time_bnds'].mean(dim='nbnd')
+            t.attrs = ds['time'].attrs
+            ds = ds.assign_coords({'time':t})
+        elif 'time_bounds' in ds:
+            t = ds['time_bounds'].mean(dim='nbnd')
+            t.attrs = ds['time'].attrs
+            ds = ds.assign_coords({'time':t})
+        else:
+            warnings.warn("\t    INFO: TEM file does not have time bounds info.")
+        case_datasets.append(xr.decode_cf(ds))
+    #End for
 
     #Loop over variables:
     for var in var_list:
         #Notify user of variable being plotted:
         print(f"\t - TEM plots for {var}")
 
+        if var not in ds_base:
+            warnings.warn(f"\t    INFO: '{var}' not in {base_name} TEM file, skipping.")
+            continue
+        #End if
+
         #Loop over model cases:
         for idx,case_name in enumerate(case_names):
 
-            tem_loc = tem_case_locs[idx]
+            ds = case_datasets[idx]
+            plot_location = plot_locations[idx]
+
+            if var not in ds:
+                warnings.warn(f"\t    INFO: '{var}' not in {case_name} TEM file, skipping.")
+                continue
+            #End if
 
             #Extract start and end year values:
             start_year = syear_cases[idx]
             end_year   = eyear_cases[idx]
-
-            #Open the TEM file
-            output_loc_idx = Path(tem_loc)
-            case_file_name = f'{case_name}.TEMdiag_{start_year}-{end_year}.nc'
-            tem_case = output_loc_idx / case_file_name
-
-            #Grab the data for the TEM netCDF files
-            if tem_case.is_file():
-                ds = xr.open_dataset(tem_case)
-            else:
-                print(f"\t'{tem_case}' does not exist. TEM plots will be skipped.")
-                return
-            if 'time_bnds' in ds:
-                t = ds['time_bnds'].mean(dim='nbnd')
-                t.attrs = ds['time'].attrs
-                ds = ds.assign_coords({'time':t})
-            elif 'time_bounds' in ds:
-                t = ds['time_bounds'].mean(dim='nbnd')
-                t.attrs = ds['time'].attrs
-                ds = ds.assign_coords({'time':t})
-            else:
-                warnings.warn("\t    INFO: Timeseries file does not have time bounds info.")
-            ds = xr.decode_cf(ds)
 
             #Loop over season dictionary:
             for s in seasons:
@@ -201,12 +207,12 @@ def tem(adf):
                 if (not redo_plot) and plot_name.is_file():
                     #Add already-existing plot to website (if enabled):
                     adf.debug_log(f"'{plot_name}' exists and clobber is false.")
-                    adf.add_website_data(plot_name, var, None, season=s, plot_type="WACCM",ext="SeasonalCycle_Mean",category="TEM",multi_case=True)
-
-                #plot_name = plot_loc / f"CPT_ANN_WACCM_SeasonalCycle_Mean.{plot_type}"
-                elif ((redo_plot) and plot_name.is_file()) or (not plot_name.is_file()):
-                    if plot_name.is_file():
-                        plot_name.unlink()
+                    adf.add_website_data(plot_name, var, case_name, season=s, plot_type="WACCM",
+                                         ext="SeasonalCycle_Mean", category="TEM")
+                    continue
+                elif redo_plot and plot_name.is_file():
+                    plot_name.unlink()
+                #End if
 
                 #Grab variable defaults for this variable
                 vres = res[var]
@@ -278,60 +284,48 @@ def tem(adf):
                         wgt_denom_base = (od_ones*weights_base).groupby("time.season").sum(dim="time").sel(season=s)
                         oseasons = oseasons / wgt_denom_base
 
-                # Derive zonal mean temp from potential temp
-                if var == "thzm":
-                    path = input_ts_locs[idx]
-                    ds_pmid = xr.open_dataset(f"{path}{case_name}.cam.h0.PMID.{start_year}01-{end_year}12.nc")
-
-                    ds_pmid_interp = ds_pmid.interp(lat=mseasons.zalat,method="nearest")
-                    pmid = ds_pmid_interp["PMID"]
-                    pmid.attrs['units'] = 'Pa'
-
-                    #Create array to avoid weighting missing values:
-                    pmid_ones = xr.where(pmid.isnull(), 0.0, 1.0)
-
-                    if s == 'ANN':
-
-                        #Calculate annual weights (i.e. don't group by season):
-                        weights_ann = month_length / month_length.sum()
-
-                        pmid = (pmid * weights_ann).sum(dim='time')
-                        pmid = pmid / (pmid_ones*weights_ann).sum(dim='time')
-                    else:
-                        #this is inefficient because we do same calc over and over
-                        pmid = (pmid * weights).groupby("time.season").sum(dim="time").sel(season=s)
-                        wgt_denom = (pmid_ones*weights).groupby("time.season").sum(dim="time").sel(season=s)
-                        pmid = pmid / wgt_denom
-
-
+                # Derive zonal mean temperature from potential temperature.
+                # 'lev' is the same pressure coordinate calc_tem uses for every
+                # other TEM quantity, so use it here rather than reading a
+                # separate PMID time series on a different vertical grid.
+                if var == "THZM":
+                    p0 = 1.0e5                     # reference pressure, Pa
+                    kappa = 287.0 / 1004.0         # R_dry / cp_dry
+                    exner = ((mseasons['lev'] * 100.0) / p0) ** kappa
+                    mseasons = mseasons * exner
+                    oseasons = oseasons * exner
                     mseasons.attrs['units'] = "K"
                     oseasons.attrs['units'] = "K"
-                    pmid = pmid.mean(dim="lon")
 
-                    mseasons = thermo.temperature_from_potential_temperature(pmid* units.Pa,mseasons* units.kelvin)
-                    oseasons = thermo.temperature_from_potential_temperature(pmid* units.Pa,oseasons* units.kelvin)
-
-                if var == "utendepfd":
+                if var == "UTENDEPFD":
                     mseasons = mseasons*1000
                     oseasons = oseasons*1000
-                #difference: each entry should be (lat, lon)
+                #difference: each entry should be (lev, zalat)
                 dseasons = mseasons-oseasons
-                
+
+                #percent change, following the convention in plotting_functions
+                pseasons = dseasons / np.abs(oseasons) * 100.0
+                pseasons = pseasons.where(np.isfinite(pseasons), np.nan).fillna(0.0)
+
                 #Gather contour plot options
-                cp_info = pf.prep_contour_plot(mseasons, oseasons, dseasons, **vres)
+                cp_info = plot_utils.prep_contour_plot(mseasons, oseasons, dseasons,
+                                                       pseasons, **vres)
                 clevs = np.unique(np.array(cp_info['levels1']))
                 norm = cp_info['norm1']
                 cmap = cp_info['cmap1']
                 clevs_diff = np.unique(np.array(cp_info['levelsdiff']))
 
-                # mesh for plots:
-                lat = mseasons['zalat']
-                lev = mseasons['lev']
-                lats, levs = np.meshgrid(lat, lev)
+                # mesh for plots -- each panel gets its own, because the baseline
+                # (especially observations) can be on a different vertical grid
+                # than the test case, and the difference is on their intersection.
+                def _mesh(da):
+                    return np.meshgrid(da['zalat'], da['lev'])
+                lats, levs = _mesh(mseasons)
+                lats_b, levs_b = _mesh(oseasons)
+                lats_d, levs_d = _mesh(dseasons)
 
                 # Find the next value below highest vertical level
                 prev_major_tick = 10 ** (np.floor(np.log10(np.min(levs))))
-                prev_major_tick
 
                 # Set padding for colorbar form axis
                 cmap_pad = 0.005
@@ -348,7 +342,7 @@ def tem(adf):
 
                 #Contour fill
                 img0 = ax[0].contourf(lats, levs,mseasons, levels=clevs, norm=norm, cmap=cmap)
-                img1 = ax[1].contourf(lats, levs,oseasons, levels=clevs, norm=norm, cmap=cmap)
+                img1 = ax[1].contourf(lats_b, levs_b,oseasons, levels=clevs, norm=norm, cmap=cmap)
                     
                 #Add contours for highlighting
                 c0 = ax[0].contour(lats,levs,mseasons,levels=clevs[::2], norm=norm,
@@ -372,7 +366,7 @@ def tem(adf):
                     plt.clabel(c0, inline=True, fontsize=8, levels=c0.levels)
 
                 #Add contours for highlighting
-                c1 = ax[1].contour(lats,levs,oseasons,levels=clevs[::2], norm=norm,
+                c1 = ax[1].contour(lats_b,levs_b,oseasons,levels=clevs[::2], norm=norm,
                                     colors="k", linewidths=0.5)
 
                 #Check if contour labels need to be adjusted
@@ -393,8 +387,11 @@ def tem(adf):
                     plt.clabel(c1, inline=True, fontsize=8, levels=c1.levels)
 
 
-                #Check if difference plot has contour levels, if not print notification
-                if len(dseasons.lev) == 0:
+                #Check if the difference has enough common levels to contour.
+                #Test and baseline are aligned on their shared levels, and
+                #contourf needs at least two of them (ERA5 has 37 pressure
+                #levels against WACCM's 71, so the overlap can be 0 or 1).
+                if dseasons['lev'].size < 2:
                     #Set empty message for comparison of cases with different vertical levels
                     #TODO: Work towards getting the vertical and horizontal interpolations!! - JR
                     empty_message = "These have different vertical levels\nCan't compare cases currently"
@@ -404,12 +401,12 @@ def tem(adf):
                     ax[2].text(prop_x, prop_y, empty_message,
                                     transform=ax[2].transAxes, bbox=props)
                 else:
-                    img2 = ax[2].contourf(lats, levs, dseasons,
+                    img2 = ax[2].contourf(lats_d, levs_d, dseasons,
                                             #cmap="BrBG",
                                             cmap=cp_info['cmapdiff'],
                                             levels=clevs_diff,
                                             norm=cp_info['normdiff'])
-                    ax[2].contour(lats, levs, dseasons, colors="k", linewidths=0.5,
+                    ax[2].contour(lats_d, levs_d, dseasons, colors="k", linewidths=0.5,
                                     levels=clevs_diff[::2], norm=cp_info['normdiff'])
                     cp_info['diff_colorbar_opt']["label"] = cp_info['colorbar_opt']["label"]
                     plt.colorbar(img2, ax=ax[2], location='right', pad=cmap_pad,**cp_info['diff_colorbar_opt'])
@@ -440,7 +437,7 @@ def tem(adf):
 
                 test_yrs = f"{start_year}-{end_year}"
                 
-                plot_title = "$\mathbf{Test}:$"+f"{test_nicknames[idx]}\nyears: {test_yrs}"
+                plot_title = r"$\mathbf{Test}:$"+f"{test_nicknames[idx]}\nyears: {test_yrs}"
                 ax[0].set_title(plot_title, loc='left', fontsize=10)
 
                 if obs:
@@ -449,11 +446,11 @@ def tem(adf):
 
                 else:
                     base_yrs = f"{syear_baseline}-{eyear_baseline}"
-                    plot_title = "$\mathbf{Baseline}:$"+f"{base_nickname}\nyears: {base_yrs}"
+                    plot_title = r"$\mathbf{Baseline}:$"+f"{base_nickname}\nyears: {base_yrs}"
                     ax[1].set_title(plot_title, loc='left', fontsize=10)
                 
                 #Set main title for difference plots column
-                ax[2].set_title("$\mathbf{Test} - \mathbf{Baseline}$",fontsize=10)
+                ax[2].set_title(r"$\mathbf{Test} - \mathbf{Baseline}$",fontsize=10)
 
                 #Write the figure to provided workspace/file:
                 fig.savefig(plot_name, bbox_inches='tight', dpi=300)

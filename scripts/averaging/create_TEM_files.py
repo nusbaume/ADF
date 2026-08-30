@@ -62,9 +62,12 @@ def create_TEM_files(adf):
         #End for
 
     #Set default to h4
-    hist_nums = adf.get_cam_info("tem_hist_str")[0]
+    hist_nums = adf.get_cam_info("tem_hist_str")
     if hist_nums is None:
-        hist_nums = ["h4a"]*len(case_names)
+        hist_nums = [["h4"]]*len(case_names)
+    #'tem_hist_str' is normalized to a nested list ([ncases][nstreams]), so take
+    #the first stream of each case rather than indexing into a single case's list.
+    hist_nums = [h[0] if isinstance(h, list) else h for h in hist_nums]
 
     #Get test case(s) tem over-write boolean and force to list if not by default
     overwrite_tem_cases = adf.get_cam_info("overwrite_tem")
@@ -130,15 +133,15 @@ def create_TEM_files(adf):
 
         #Make a copy of obs data so we don't do anything bad
         ds_obs = ds.copy()
-        ds_base = xr.Dataset({'uzm': xr.Variable(('time', 'lev', 'zalat'), ds_obs.uzm.data),
-                                'epfy': xr.Variable(('time', 'lev', 'zalat'), ds_obs.epfy.data),
-                                'epfz': xr.Variable(('time', 'lev', 'zalat'), ds_obs.epfz.data),
-                                'vtem': xr.Variable(('time', 'lev', 'zalat'), ds_obs.vtem.data),
-                                'wtem': xr.Variable(('time', 'lev', 'zalat'), ds_obs.wtem.data),
-                                'psitem': xr.Variable(('time', 'lev', 'zalat'), ds_obs.psitem.data),
-                                'utendepfd': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendepfd.data),
-                                'utendvtem': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendvtem.data),
-                                'utendwtem': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendwtem.data),
+        ds_base = xr.Dataset({'UZM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.uzm.data),
+                                'EPFY': xr.Variable(('time', 'lev', 'zalat'), ds_obs.epfy.data),
+                                'EPFZ': xr.Variable(('time', 'lev', 'zalat'), ds_obs.epfz.data),
+                                'VTEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.vtem.data),
+                                'WTEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.wtem.data),
+                                'PSITEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.psitem.data),
+                                'UTENDEPFD': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendepfd.data),
+                                'UTENDVTEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendvtem.data),
+                                'UTENDWTEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendwtem.data),
                                 'lev': xr.Variable('lev', ds_obs.level.values),
                                 'zalat': xr.Variable('zalat', ds_obs.lat.values),
                                 'time': xr.Variable('time', ds_obs.time.values)
@@ -154,7 +157,9 @@ def create_TEM_files(adf):
             #Set default to h4
             hist_num = adf.get_baseline_info("tem_hist_str")
             if hist_num is None:
-                hist_num = "h4a"
+                hist_num = "h4"
+            if isinstance(hist_num, list):
+                hist_num = hist_num[0]
 
             #Extract baseline years (which may be empty strings if using Obs):
             syear_baseline = adf.climo_yrs["syear_baseline"]
@@ -200,9 +205,8 @@ def create_TEM_files(adf):
         #End if
 
         #Check if history files actually exist. If not then kill script:
-        
-        hist_str = f"{hist_nums[case_idx]}"
-        if not list(starting_location.glob("*"+hist_str+'.*.nc')):
+        hist_str = hist_nums[case_idx]
+        if not list(starting_location.glob(f"*{hist_str}.*.nc")):
             emsg = f"No CAM history {hist_str} files found in '{starting_location}'."
             emsg += " Script is ending here."
             adf.end_diag_fail(emsg)
@@ -259,6 +263,10 @@ def create_TEM_files(adf):
             dstem0.attrs = ds.attrs
             dstem0.attrs['created'] = str(date.today())
             dstem0['lev']=ds['lev']
+            #Hybrid coefficients are time-invariant, so attach them after the concat
+            for coef in ('hyam', 'hybm'):
+                if coef in ds:
+                    dstem0[coef] = ds[coef]
 
             # write output to a netcdf file
             dstem0.to_netcdf(tem_fil, unlimited_dims='time', mode='w')
@@ -408,7 +416,7 @@ def calc_tem(ds):
     topvzm = np.zeros([1,nlat])
     vzmwithzero = np.concatenate((topvzm, vzm), axis=0)
     prewithzero = np.concatenate((np.zeros([1]), pre))
-    intv = integrate.cumtrapz(vzmwithzero,prewithzero,axis=0)
+    intv = integrate.cumulative_trapezoid(vzmwithzero,prewithzero,axis=0)
     psitem = (2*np.pi*a*coslat2d/g0)*(intv - psieddy)
 
     # final scaling of E-P fluxes and divergence to transform to log-pressure
@@ -459,17 +467,15 @@ def calc_tem(ds):
     utendvtem.values = np.float32(utendvtem.values)
     utendwtem.values = np.float32(utendwtem.values)
 
-    #Average time dimension over time bounds, if bounds exist:
-    if 'time_bnds' in ds:
-        time_bounds_name = 'time_bnds'
-    elif 'time_bounds' in ds:
-        time_bounds_name = 'time_bounds'
+    #Carry the time bounds through under whichever name the history files use:
+    time_bounds_name = None
+    for name in ('time_bnds', 'time_bounds'):
+        if name in ds:
+            time_bounds_name = name
+            break
 
     dstem = xr.Dataset(data_vars=dict(date = ds.date,
                                       datesec = ds.datesec,
-                                      time_bnds = time_bounds_name,
-                                      hybm=ds.hybm,
-                                      hyam=ds.hyam,
                                       UZM = uzm,
                                       VZM = vzm,
                                       THZM = thzm,
@@ -482,5 +488,8 @@ def calc_tem(ds):
                                       UTENDVTEM = utendvtem,
                                       UTENDWTEM = utendwtem
                                       ))
+
+    if time_bounds_name is not None:
+        dstem['time_bnds'] = ds[time_bounds_name]
 
     return dstem
