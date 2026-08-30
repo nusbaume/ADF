@@ -104,3 +104,29 @@ def test_pressure_field_follows_the_grid():
 def test_vertical_dim_ignores_other_dimensions():
     da = xr.DataArray(np.zeros((2, 3)), dims=("time", "zalat"))
     assert utils.vertical_dim(da) is None
+
+
+def test_unreconcilable_grids_are_reported_not_raised(capsys):
+    """The ADF reports what it cannot do and carries on with the rest.
+
+    A mix of grids needs the 'lev' coordinate values to interpolate onto. A file
+    can have the dimension without the coordinate, and that case has to come back
+    as a skip signal rather than an exception, or one bad case takes down every
+    other case's TEM output with it.
+    """
+    ds = _dataset(on_interfaces=("UVzm",)).drop_vars("lev")
+    assert "lev" in ds.dims and "lev" not in ds.coords
+
+    ds_out, lev_name = harmonize_tem_levels(ds)
+
+    assert lev_name is None, "caller needs a skip signal, not an exception"
+    assert "WARNING" in capsys.readouterr().out
+    assert ds_out is ds
+
+
+def test_nothing_recognisable_falls_back_to_midpoints():
+    """No vertical dimension at all: assume midpoints rather than guessing."""
+    ds = _dataset()
+    for name in TEM_INPUT_VARS:
+        ds[name] = ds[name].rename({"lev": "something_else"})
+    assert harmonize_tem_levels(ds)[1] == "lev"

@@ -10,6 +10,16 @@ from itertools import chain
 import adf_utils as utils
 
 
+def _ensure_dir(path):
+    """Return `path` as a Path, creating it if it is not there yet."""
+    path = Path(path)
+    if not path.is_dir():
+        print(f"    {path} not found, making new directory")
+        path.mkdir(parents=True)
+    #End if
+    return path
+
+
 def create_TEM_files(adf):
     """
     Calculate the TEM variables and create new netCDF files
@@ -40,28 +50,19 @@ def create_TEM_files(adf):
     else:
         var_list = ["UZM","THZM","EPFY","EPFZ","VTEM","WTEM","PSITEM","UTENDEPFD"]
 
-    tem_locs = []
-    
     #Grab TEM diagnostics options
     #----------------------------
     #Extract TEM file save locations
     tem_base_loc = adf.get_baseline_info("cam_tem_loc")
     tem_case_locs = adf.get_cam_info("cam_tem_loc")
 
-    #If path not specified, skip TEM calculation?
+    #Without an output location there is nowhere to put the files, and the
+    #case loop below indexes tem_locs, so there is nothing to carry on with.
     if tem_case_locs is None:
         print("\t 'cam_tem_loc' not found in 'diag_cam_climo', so no TEM files/diagnostics will be generated.")
-        pass
-    else:
-        for tem_case_loc in tem_case_locs:
-            tem_case_loc = Path(tem_case_loc)
-            #Check if TEM directory exists, and if not, then create it:
-            if not tem_case_loc.is_dir():
-                print(f"    {tem_case_loc} not found, making new directory")
-                tem_case_loc.mkdir(parents=True)
-            #End if
-            tem_locs.append(tem_case_loc)
-        #End for
+        return
+    #End if
+    tem_locs = [_ensure_dir(loc) for loc in tem_case_locs]
 
     #Set default to h4
     hist_nums = adf.get_cam_info("tem_hist_str")
@@ -89,20 +90,15 @@ def create_TEM_files(adf):
         #If dictionary is empty, then there are no observations, so quit here:
         if not var_obs_dict:
             print("No observations found to plot against, so no obs-based TEM plot will be generated.")
-            pass
+            return
+        #End if
         
         print(f"\t Processing TEM for observations :")
 
         base_name = "Obs"
 
         #Save Obs TEM file to first test case location
-        output_loc_idx = tem_locs[0]
-
-        #Check if re-gridded directory exists, and if not, then create it:
-        if not output_loc_idx.is_dir():
-            print(f"    {output_loc_idx} not found, making new directory")
-            output_loc_idx.mkdir(parents=True)
-        #End if
+        output_loc_idx = _ensure_dir(tem_locs[0])
 
         print(f"\t NOTE: Observation TEM file being saved to '{output_loc_idx}'")
 
@@ -133,21 +129,15 @@ def create_TEM_files(adf):
         ds['lev']=ds['level']
         ds['zalat']=ds['lat']
 
-        #Make a copy of obs data so we don't do anything bad
+        #The observation file uses the lower-case CAM names; the TEM files the
+        #ADF writes, and the plotting script, use the upper-case ones.
         ds_obs = ds.copy()
-        ds_base = xr.Dataset({'UZM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.uzm.data),
-                                'EPFY': xr.Variable(('time', 'lev', 'zalat'), ds_obs.epfy.data),
-                                'EPFZ': xr.Variable(('time', 'lev', 'zalat'), ds_obs.epfz.data),
-                                'VTEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.vtem.data),
-                                'WTEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.wtem.data),
-                                'PSITEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.psitem.data),
-                                'UTENDEPFD': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendepfd.data),
-                                'UTENDVTEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendvtem.data),
-                                'UTENDWTEM': xr.Variable(('time', 'lev', 'zalat'), ds_obs.utendwtem.data),
-                                'lev': xr.Variable('lev', ds_obs.level.values),
-                                'zalat': xr.Variable('zalat', ds_obs.lat.values),
-                                'time': xr.Variable('time', ds_obs.time.values)
-                    })
+        ds_base = xr.Dataset(
+            {name.upper(): xr.Variable(('time', 'lev', 'zalat'), ds_obs[name].data)
+             for name in OBS_TEM_VARS},
+            coords={'lev': ds_obs.level.values,
+                    'zalat': ds_obs.lat.values,
+                    'time': ds_obs.time.values})
 
         # write output to a netcdf file
         ds_base.to_netcdf(tem_fil, unlimited_dims='time', mode='w')
@@ -171,14 +161,7 @@ def create_TEM_files(adf):
             start_years.append(syear_baseline)
             end_years.append(eyear_baseline)
            
-            tem_base_loc = Path(tem_base_loc)
-            #Check if TEM directory exists, and if not, then create it:
-            if not tem_base_loc.is_dir():
-                print(f"    {tem_base_loc} not found, making new directory")
-                tem_base_loc.mkdir(parents=True)
-            #End if
-
-            tem_locs.append(tem_base_loc)
+            tem_locs.append(_ensure_dir(tem_base_loc))
             overwrite_tem_cases.append(adf.get_baseline_info("overwrite_tem", False))
 
             hist_nums.append(hist_num)
@@ -188,6 +171,7 @@ def create_TEM_files(adf):
     #End if (check for obs)
 
     #Loop over cases:
+    skipped = []
     for case_idx, case_name in enumerate(case_names):
 
         print(f"\t Processing TEM for case '{case_name}' :")
@@ -199,29 +183,24 @@ def create_TEM_files(adf):
         #Create path object for the CAM history file(s) location:
         starting_location = Path(cam_hist_locs[case_idx])
 
-        #Check that path actually exists:
+        #A case the ADF cannot process is reported and skipped; the remaining
+        #cases still get their TEM files.
         if not starting_location.is_dir():
-            emsg = f"Provided 'cam_hist_loc' directory '{starting_location}' not found."
-            emsg += " Script is ending here."
-            return
+            print(f"\t    WARNING: 'cam_hist_loc' directory '{starting_location}' "
+                  f"not found, skipping TEM for '{case_name}'.")
+            skipped.append(case_name)
+            continue
         #End if
 
-        #Check if history files actually exist. If not then kill script:
         hist_str = hist_nums[case_idx]
         if not list(starting_location.glob(f"*{hist_str}.*.nc")):
-            emsg = f"No CAM history {hist_str} files found in '{starting_location}'."
-            emsg += " Script is ending here."
-            adf.end_diag_fail(emsg)
+            print(f"\t    WARNING: no CAM history {hist_str} files in "
+                  f"'{starting_location}', skipping TEM for '{case_name}'.")
+            skipped.append(case_name)
+            continue
         #End if
 
-        #Get full path and file for file name
-        output_loc_idx = tem_locs[case_idx]
-
-        #Check if re-gridded directory exists, and if not, then create it:
-        if not output_loc_idx.is_dir():
-            print(f"    {output_loc_idx} not found, making new directory")
-            output_loc_idx.mkdir(parents=True)
-        #End if
+        output_loc_idx = _ensure_dir(tem_locs[case_idx])
 
         #Set case file name
         tem_fil = output_loc_idx / f'{case_name}.TEMdiag_{start_year}-{end_year}.nc'
@@ -229,72 +208,71 @@ def create_TEM_files(adf):
         #Get current case tem over-write boolean
         overwrite_tem = overwrite_tem_cases[case_idx]
 
-        #If files exist, then check if over-writing is allowed:
-        if (tem_fil.is_file()) and (not overwrite_tem):
-            print(f"\t    INFO: Found TEM file and clobber is False, so moving to next case.")
-            pass
-        else:
-            if tem_fil.is_file():
-                print(f"\t    INFO: Found TEM file but clobber is True, so over-writing file.")
+        #If the file is already there and clobber is off, there is nothing to do:
+        if tem_fil.is_file() and not overwrite_tem:
+            print("\t    INFO: Found TEM file and clobber is False, so moving to next case.")
+            continue
+        #End if
+        if tem_fil.is_file():
+            print("\t    INFO: Found TEM file but clobber is True, so over-writing file.")
+        #End if
 
-            #Glob each set of years
-            #NOTE: This will make a nested list
-            hist_files = []
-            for yr in np.arange(int(start_year),int(end_year)+1):
+        hist_files = sorted(chain.from_iterable(
+            #leading zeros on the year just in case
+            glob(f"{starting_location}/*{hist_str}.{yr:04d}*.nc")
+            for yr in range(int(start_year), int(end_year) + 1)))
 
-                #Grab all leading zeros for climo year just in case
-                yr = f"{str(yr).zfill(4)}"
-                hist_files.append(glob(f"{starting_location}/*{hist_str}.{yr}*.nc"))
+        ds = xr.open_mfdataset(hist_files)
 
-            #Flatten list of lists to 1d list
-            hist_files = sorted(list(chain.from_iterable(hist_files)))
+        #Settle the vertical grid once, before the per-time loop, rather than
+        #assuming the zonal-mean fields are on layer midpoints.
+        ds, lev_name = harmonize_tem_levels(ds)
+        if lev_name is None:
+            print(f"\t    WARNING: skipping TEM for '{case_name}'.")
+            skipped.append(case_name)
+            continue
+        #End if
 
-            ds = xr.open_mfdataset(hist_files)
+        #calc_tem works one time step at a time:
+        dstem0 = xr.concat([calc_tem(ds.squeeze().isel(time=idx), lev_name)
+                            for idx in range(ds.sizes['time'])], 'time')
 
-            #Settle the vertical grid once, before the per-time loop, rather
-            #than assuming the zonal-mean fields are on layer midpoints.
-            ds, lev_name = harmonize_tem_levels(ds)
+        #Update the attributes
+        dstem0.attrs = ds.attrs
+        dstem0.attrs['created'] = str(date.today())
+        dstem0[lev_name] = ds[lev_name]
 
-            #iterate over the times in a dataset
-            for idx,_ in enumerate(ds.time.values):
-                if idx == 0:
-                    dstem0 = calc_tem(ds.squeeze().isel(time=idx), lev_name)
-                else:
-                    dstem = calc_tem(ds.squeeze().isel(time=idx), lev_name)
-                    dstem0 = xr.concat([dstem0, dstem],'time')
-                #End if
+        #Hybrid coefficients are time-invariant; take the pair that belongs to
+        #the grid actually used, and drop the time dimension open_mfdataset
+        #gives them when it concatenates the history files.
+        for coef in ('hyam', 'hybm') if lev_name == 'lev' else ('hyai', 'hybi'):
+            if coef in ds:
+                dstem0[coef] = ds[coef].isel(time=0, drop=True) \
+                               if 'time' in ds[coef].dims else ds[coef]
             #End if
+        #End for
 
-            #Update the attributes
-            dstem0.attrs = ds.attrs
-            dstem0.attrs['created'] = str(date.today())
-            dstem0[lev_name]=ds[lev_name]
-            #Hybrid coefficients are time-invariant; take the pair that belongs
-            #to the grid actually used, and drop the time dimension that
-            #open_mfdataset gives them when it concatenates the history files.
-            coefs = ('hyam', 'hybm') if lev_name == 'lev' else ('hyai', 'hybi')
-            for coef in coefs:
-                if coef in ds:
-                    coef_da = ds[coef]
-                    if 'time' in coef_da.dims:
-                        coef_da = coef_da.isel(time=0, drop=True)
-                    #End if
-                    dstem0[coef] = coef_da
-                #End if
-            #End for
+        # write output to a netcdf file
+        dstem0.to_netcdf(tem_fil, unlimited_dims='time', mode='w')
 
-            # write output to a netcdf file
-            dstem0.to_netcdf(tem_fil, unlimited_dims='time', mode='w')
-
-        #End if (file creation or over-write file)
-    #Notify user that script has ended:
-    print("  ...TEM variables have been calculated successfully.")
+    #Notify user that script has ended, naming anything that did not get made
+    #so a partial run is not reported as a complete one:
+    if skipped:
+        print(f"  ...TEM variables calculated, except for: {', '.join(skipped)}.")
+    else:
+        print("  ...TEM variables have been calculated successfully.")
+    #End if
 
 
 
 
 #The zonal-mean fields calc_tem needs from the history stream:
 TEM_INPUT_VARS = ("Uzm", "Vzm", "Wzm", "THzm", "UVzm", "UWzm", "VTHzm")
+
+#The TEM fields carried in the observation file, under their CAM names. There is
+#no THZM or VZM: the ERA5 TEM file has neither.
+OBS_TEM_VARS = ("uzm", "epfy", "epfz", "vtem", "wtem", "psitem",
+                "utendepfd", "utendvtem", "utendwtem")
 
 
 def harmonize_tem_levels(ds):
@@ -309,9 +287,10 @@ def harmonize_tem_levels(ds):
 
     Returns
     -------
-    (xarray.Dataset, str)
+    (xarray.Dataset, str or None)
         the dataset with the TEM inputs on a single grid, and the name of that
-        vertical dimension.
+        vertical dimension -- or None if they cannot be reconciled, which the
+        caller should report and skip over.
     """
     present = {v: utils.vertical_dim(ds[v]) for v in TEM_INPUT_VARS if v in ds}
     found = {dim for dim in present.values() if dim is not None}
@@ -323,10 +302,14 @@ def harmonize_tem_levels(ds):
         return ds, found.pop()
     #End if
 
-    #Mixed grids: interpolate the interface fields onto the midpoints.
-    if "lev" not in ds.dims:
-        raise KeyError("TEM inputs are on mixed vertical grids but the history "
-                       "file has no 'lev' dimension to use as the common one.")
+    #Mixed grids: interpolate the interface fields onto the midpoints. A mix
+    #means something is already on 'lev', so the dimension is there, but the
+    #file need not carry the matching coordinate values to interpolate onto.
+    if "lev" not in ds.coords:
+        print("\t    WARNING: TEM inputs are on mixed vertical grids but the "
+              "history files have no 'lev' coordinate to interpolate onto.")
+        return ds, None
+    #End if
     mixed = sorted(v for v, dim in present.items() if dim == "ilev")
     print("\t    INFO: TEM inputs are on mixed vertical grids; interpolating "
           f"{', '.join(mixed)} from 'ilev' onto 'lev'.")
