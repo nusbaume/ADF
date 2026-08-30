@@ -10,6 +10,24 @@ from itertools import chain
 import adf_utils as utils
 
 
+def _per_case(value, default, ncases):
+    """A config entry as one value per case, whatever shape it arrived in."""
+    if value is None:
+        return [default] * ncases
+    return value if isinstance(value, list) else [value] * ncases
+
+
+def _first_stream(hist_str, default="h4"):
+    """The first history stream of a 'hist_str' entry.
+
+    The ADF normalizes these to a nested list ([ncases][nstreams]), but a
+    baseline entry arrives as whatever the config held, so unwrap either.
+    """
+    while isinstance(hist_str, list) and hist_str:
+        hist_str = hist_str[0]
+    return hist_str if hist_str else default
+
+
 def _ensure_dir(path):
     """Return `path` as a Path, creating it if it is not there yet."""
     path = Path(path)
@@ -18,6 +36,61 @@ def _ensure_dir(path):
         path.mkdir(parents=True)
     #End if
     return path
+
+
+def _write_obs_tem_file(adf, var_list, res, output_loc):
+    """Write the observation TEM file from pre-computed observational diagnostics.
+
+    Nothing is calculated here: the observational file already holds TEM
+    diagnostics. Only the variable names and coordinate names differ from what
+    the rest of the ADF expects.
+    """
+    print("\t Processing TEM for observations :")
+
+    #Not every TEM variable has an observational counterpart -- the ERA5 TEM
+    #file has no potential temperature, for one -- so only ask for the ones
+    #that declare a file.
+    obs_data_loc = adf.get_basic_info("obs_data_loc")
+    tem_obs_fils = []
+    for var in var_list:
+        obs_file = res.get(var, {}).get("obs_file")
+        if obs_file is None:
+            continue
+        #End if
+        obs_file_path = Path(obs_file)
+        if not obs_file_path.is_file() and obs_data_loc:
+            obs_file_path = Path(obs_data_loc) / obs_file_path
+        #End if
+        #Several TEM variables usually share one file:
+        if obs_file_path not in tem_obs_fils:
+            tem_obs_fils.append(obs_file_path)
+        #End if
+    #End for
+
+    if not tem_obs_fils:
+        print("\t    WARNING: no observation files found for any TEM variable, "
+              "so no observational TEM file will be written.")
+        return
+    #End if
+
+    ds_obs = xr.open_mfdataset(tem_obs_fils, combine="nested")
+    missing = [v for v in OBS_TEM_VARS if v not in ds_obs]
+    if missing:
+        print(f"\t    WARNING: observation TEM data has no {', '.join(missing)}.")
+    #End if
+
+    #The observation file uses the lower-case CAM names; the TEM files the ADF
+    #writes, and the plotting script, use the upper-case ones.
+    ds_base = xr.Dataset(
+        {name.upper(): xr.Variable(('time', 'lev', 'zalat'), ds_obs[name].data)
+         for name in OBS_TEM_VARS if name in ds_obs},
+        coords={'lev': ds_obs.level.values,
+                'zalat': ds_obs.lat.values,
+                'time': ds_obs.time.values},
+        attrs={**ds_obs.attrs, 'created': str(date.today())})
+
+    print(f"\t NOTE: Observation TEM file being saved to '{output_loc}'")
+    ds_base.to_netcdf(output_loc / 'Obs.TEMdiag.nc', unlimited_dims='time', mode='w')
 
 
 def create_TEM_files(adf):
@@ -64,111 +137,29 @@ def create_TEM_files(adf):
     #End if
     tem_locs = [_ensure_dir(loc) for loc in tem_case_locs]
 
-    #Set default to h4
-    hist_nums = adf.get_cam_info("tem_hist_str")
-    if hist_nums is None:
-        hist_nums = [["h4"]]*len(case_names)
-    #'tem_hist_str' is normalized to a nested list ([ncases][nstreams]), so take
-    #the first stream of each case rather than indexing into a single case's list.
-    hist_nums = [h[0] if isinstance(h, list) else h for h in hist_nums]
+    #One TEM history stream and one clobber setting per case, defaulting to h4:
+    ncases = len(case_names)
+    hist_nums = [_first_stream(h)
+                 for h in _per_case(adf.get_cam_info("tem_hist_str"), "h4", ncases)]
+    overwrite_tem_cases = _per_case(adf.get_cam_info("overwrite_tem"), False, ncases)
 
-    #Get test case(s) tem over-write boolean and force to list if not by default
-    overwrite_tem_cases = adf.get_cam_info("overwrite_tem")
-
-    #If overwrite argument is missing, then default to False:
-    if overwrite_tem_cases is None:
-        overwrite_tem_cases = [False]*len(case_names)
-
-    #If overwrite argument is a scalar,
-    #then convert it into a list:
-    if not isinstance(overwrite_tem_cases, list): overwrite_tem_cases = [overwrite_tem_cases]
-
-    #Check if comparing to observations
+    #Observations need no TEM calculation -- the observational file already
+    #holds TEM diagnostics -- so they are written out directly and the loop
+    #below still makes the test cases' files. A baseline simulation, by
+    #contrast, is processed exactly like a test case, so it is appended to the
+    #case lists rather than handled separately.
     if adf.get_basic_info("compare_obs"):
-        var_obs_dict = adf.var_obs_dict
-
-        #If dictionary is empty, then there are no observations, so quit here:
-        if not var_obs_dict:
-            print("No observations found to plot against, so no obs-based TEM plot will be generated.")
-            return
-        #End if
-        
-        print(f"\t Processing TEM for observations :")
-
-        base_name = "Obs"
-
-        #Save Obs TEM file to first test case location
-        output_loc_idx = _ensure_dir(tem_locs[0])
-
-        print(f"\t NOTE: Observation TEM file being saved to '{output_loc_idx}'")
-
-        #Set baseline file name as full path
-        tem_fil = output_loc_idx / f'{base_name}.TEMdiag.nc'
-
-        #Group all TEM observation files together
-        tem_obs_fils = []
-        for var in var_list:
-            if var in res:
-                #Gather from variable defaults file
-                obs_file_path = Path(res[var]["obs_file"])
-                if not obs_file_path.is_file():
-                    obs_data_loc = adf.get_basic_info("obs_data_loc")
-                    obs_file_path = Path(obs_data_loc)/obs_file_path
-
-                #It's likely multiple TEM vars will come from one file, so check
-                #to see if it already exists from other vars.
-                if obs_file_path not in tem_obs_fils:
-                    tem_obs_fils.append(obs_file_path)
-
-        ds = xr.open_mfdataset(tem_obs_fils,combine="nested")
-        start_year = str(ds.time[0].values)[0:4]
-        end_year = str(ds.time[-1].values)[0:4]
-
-        #Update the attributes
-        ds.attrs['created'] = str(date.today())
-        ds['lev']=ds['level']
-        ds['zalat']=ds['lat']
-
-        #The observation file uses the lower-case CAM names; the TEM files the
-        #ADF writes, and the plotting script, use the upper-case ones.
-        ds_obs = ds.copy()
-        ds_base = xr.Dataset(
-            {name.upper(): xr.Variable(('time', 'lev', 'zalat'), ds_obs[name].data)
-             for name in OBS_TEM_VARS},
-            coords={'lev': ds_obs.level.values,
-                    'zalat': ds_obs.lat.values,
-                    'time': ds_obs.time.values})
-
-        # write output to a netcdf file
-        ds_base.to_netcdf(tem_fil, unlimited_dims='time', mode='w')
-
+        _write_obs_tem_file(adf, var_list, res, _ensure_dir(tem_locs[0]))
+    elif tem_base_loc:
+        cam_hist_locs.append(adf.get_baseline_info("cam_hist_loc", required=True))
+        case_names.append(base_name)
+        start_years.append(adf.climo_yrs["syear_baseline"])
+        end_years.append(adf.climo_yrs["eyear_baseline"])
+        tem_locs.append(_ensure_dir(tem_base_loc))
+        overwrite_tem_cases.append(adf.get_baseline_info("overwrite_tem", False))
+        hist_nums.append(_first_stream(adf.get_baseline_info("tem_hist_str")))
     else:
-        if tem_base_loc:
-            cam_hist_locs.append(adf.get_baseline_info("cam_hist_loc", required=True))
-
-            #Set default to h4
-            hist_num = adf.get_baseline_info("tem_hist_str")
-            if hist_num is None:
-                hist_num = "h4"
-            if isinstance(hist_num, list):
-                hist_num = hist_num[0]
-
-            #Extract baseline years (which may be empty strings if using Obs):
-            syear_baseline = adf.climo_yrs["syear_baseline"]
-            eyear_baseline = adf.climo_yrs["eyear_baseline"]
-
-            case_names.append(base_name)
-            start_years.append(syear_baseline)
-            end_years.append(eyear_baseline)
-           
-            tem_locs.append(_ensure_dir(tem_base_loc))
-            overwrite_tem_cases.append(adf.get_baseline_info("overwrite_tem", False))
-
-            hist_nums.append(hist_num)
-        else:
-            print("\t 'cam_tem_loc' not found in 'diag_cam_baseline_climo', so no baseline files/diagnostics will be generated.")
-
-    #End if (check for obs)
+        print("\t 'cam_tem_loc' not found in 'diag_cam_baseline_climo', so no baseline files/diagnostics will be generated.")
 
     #Loop over cases:
     skipped = []

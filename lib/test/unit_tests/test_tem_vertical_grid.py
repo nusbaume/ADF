@@ -130,3 +130,23 @@ def test_nothing_recognisable_falls_back_to_midpoints():
     for name in TEM_INPUT_VARS:
         ds[name] = ds[name].rename({"lev": "something_else"})
     assert harmonize_tem_levels(ds)[1] == "lev"
+
+
+def test_tem_variable_without_observations_is_skipped(capsys):
+    """Not every TEM variable has an observational counterpart.
+
+    THZM does not: the ERA5 TEM file carries no potential temperature, so its
+    variable_defaults entry has no 'obs_file'. Looking that key up directly
+    raises KeyError and takes the whole observational TEM file with it.
+    """
+    from create_TEM_files import _write_obs_tem_file
+
+    class _Adf:
+        def get_basic_info(self, key, required=False):
+            return None
+
+    # a variable with no 'obs_file', and one absent from variable_defaults
+    _write_obs_tem_file(_Adf(), ["THZM", "NOT_A_VARIABLE"], {"THZM": {}}, Path("."))
+
+    out = capsys.readouterr().out
+    assert "WARNING" in out and "no observation files" in out
