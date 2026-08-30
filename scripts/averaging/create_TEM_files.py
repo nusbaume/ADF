@@ -7,6 +7,8 @@ from pathlib import Path
 from glob import glob
 from itertools import chain
 
+import adf_utils as utils
+
 
 def create_TEM_files(adf):
     """
@@ -249,12 +251,16 @@ def create_TEM_files(adf):
 
             ds = xr.open_mfdataset(hist_files)
 
+            #Settle the vertical grid once, before the per-time loop, rather
+            #than assuming the zonal-mean fields are on layer midpoints.
+            ds, lev_name = harmonize_tem_levels(ds)
+
             #iterate over the times in a dataset
             for idx,_ in enumerate(ds.time.values):
                 if idx == 0:
-                    dstem0 = calc_tem(ds.squeeze().isel(time=idx))
+                    dstem0 = calc_tem(ds.squeeze().isel(time=idx), lev_name)
                 else:
-                    dstem = calc_tem(ds.squeeze().isel(time=idx))
+                    dstem = calc_tem(ds.squeeze().isel(time=idx), lev_name)
                     dstem0 = xr.concat([dstem0, dstem],'time')
                 #End if
             #End if
@@ -262,11 +268,20 @@ def create_TEM_files(adf):
             #Update the attributes
             dstem0.attrs = ds.attrs
             dstem0.attrs['created'] = str(date.today())
-            dstem0['lev']=ds['lev']
-            #Hybrid coefficients are time-invariant, so attach them after the concat
-            for coef in ('hyam', 'hybm'):
+            dstem0[lev_name]=ds[lev_name]
+            #Hybrid coefficients are time-invariant; take the pair that belongs
+            #to the grid actually used, and drop the time dimension that
+            #open_mfdataset gives them when it concatenates the history files.
+            coefs = ('hyam', 'hybm') if lev_name == 'lev' else ('hyai', 'hybi')
+            for coef in coefs:
                 if coef in ds:
-                    dstem0[coef] = ds[coef]
+                    coef_da = ds[coef]
+                    if 'time' in coef_da.dims:
+                        coef_da = coef_da.isel(time=0, drop=True)
+                    #End if
+                    dstem0[coef] = coef_da
+                #End if
+            #End for
 
             # write output to a netcdf file
             dstem0.to_netcdf(tem_fil, unlimited_dims='time', mode='w')
@@ -278,7 +293,54 @@ def create_TEM_files(adf):
 
 
 
-def calc_tem(ds):
+#The zonal-mean fields calc_tem needs from the history stream:
+TEM_INPUT_VARS = ("Uzm", "Vzm", "Wzm", "THzm", "UVzm", "UWzm", "VTHzm")
+
+
+def harmonize_tem_levels(ds):
+    """Put the TEM input fields on one vertical grid, and say which one.
+
+    CAM may write the zonal-mean fields on layer midpoints ('lev') or on layer
+    interfaces ('ilev'), and a history stream can carry a mix of the two.  When
+    they all agree the native grid is kept, so an interface-only stream stays on
+    interfaces and pairs with PINT.  When they disagree the midpoint grid is used
+    as the common one and the interface fields are interpolated onto it, so the
+    result pairs with PMID.
+
+    Returns
+    -------
+    (xarray.Dataset, str)
+        the dataset with the TEM inputs on a single grid, and the name of that
+        vertical dimension.
+    """
+    present = {v: utils.vertical_dim(ds[v]) for v in TEM_INPUT_VARS if v in ds}
+    found = {dim for dim in present.values() if dim is not None}
+
+    if not found:
+        #Nothing to go on; assume midpoints and let the caller fail loudly if wrong.
+        return ds, "lev"
+    if len(found) == 1:
+        return ds, found.pop()
+    #End if
+
+    #Mixed grids: interpolate the interface fields onto the midpoints.
+    if "lev" not in ds.dims:
+        raise KeyError("TEM inputs are on mixed vertical grids but the history "
+                       "file has no 'lev' dimension to use as the common one.")
+    mixed = sorted(v for v, dim in present.items() if dim == "ilev")
+    print("\t    INFO: TEM inputs are on mixed vertical grids; interpolating "
+          f"{', '.join(mixed)} from 'ilev' onto 'lev'.")
+    target = xr.DataArray(ds["lev"].values, dims="lev",
+                          coords={"lev": ds["lev"].values})
+    out = ds.copy()
+    for var in mixed:
+        out[var] = ds[var].interp(ilev=target, method="linear",
+                                  kwargs={"fill_value": "extrapolate"})
+    #End for
+    return out, "lev"
+
+
+def calc_tem(ds, lev_name="lev"):
     """
     # calc_tem() function to calculate TEM diagnostics on CAM/WACCM output
     # This assumes the data have already been organized into zonal mean fluxes
@@ -325,13 +387,13 @@ def calc_tem(ds):
     g0 = 9.80665
 
     nlat = ds['zalat'].size
-    nlev = ds['lev'].size
+    nlev = ds[lev_name].size
 
     latrad = np.radians(ds.zalat)
     coslat = np.cos(latrad)
     coslat2d = np.tile(coslat,(nlev,1))
 
-    pre = ds['lev']*100. # pressure levels in Pascals
+    pre = ds[lev_name]*100. # pressure levels in Pascals
     f = 2.*om*np.sin(latrad[:])
     f2d = np.tile(f,(nlev,1))
 

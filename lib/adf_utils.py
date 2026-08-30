@@ -109,6 +109,35 @@ def load_dataset(fils):
 #End def
 
 
+#CAM writes fields either on layer midpoints or on layer interfaces, and which
+#one a given field uses is not always predictable -- the WACCM zonal-mean stream
+#has used both. These are the dimension names for the two.
+VERTICAL_DIMS = ("lev", "ilev")
+
+
+def vertical_dim(data):
+    """Return the name of `data`'s vertical dimension, or None if it has none.
+
+    Only tells you which of 'lev' (layer midpoints) and 'ilev' (interfaces) the
+    field is on; use pressure_field_name to get the matching pressure variable.
+    """
+    for dim in data.dims:
+        if dim in VERTICAL_DIMS:
+            return dim
+    return None
+
+
+def pressure_field_name(level_dim):
+    """CAM's own 3-D pressure for a vertical dimension.
+
+    PMID on layer midpoints, PINT on interfaces. Preferred over reconstructing
+    pressure from PS and the hybrid coefficients: it is what the model actually
+    used, and it is the only correct option for the dry-mass vertical coordinate
+    in recent CAM/WACCM, where the hybrid coefficients do not give pressure.
+    """
+    return "PMID" if level_dim == "lev" else "PINT"
+
+
 def mask_land_or_ocean(arr, msk, use_nan=False):
     """Apply a land or ocean mask to provided variable.
 

@@ -19,28 +19,34 @@ KAPPA = 287.0 / 1004.0  # R_dry / cp_dry
 def _zonal_mean_pressure(adf, case_name, like, season):
     """Season-averaged zonal mean pressure (Pa) on the TEM grid, or None.
 
-    The ADF prefers the model's own PMID over pressure reconstructed from the
-    hybrid coefficients: PMID is what the model actually used, and for the
-    dry-mass vertical coordinate in recent CAM/WACCM the hybrid 'lev' is not the
-    pressure at all.  This is the same rule _find_pressure_field applies in
-    regrid_and_vert_interp.py.  TEM output lives on layer midpoints, so PMID is
-    the right field (PINT would be the interface equivalent).
+    The ADF prefers the model's own pressure over pressure reconstructed from
+    the hybrid coefficients: it is what the model actually used, and for the
+    dry-mass vertical coordinate in recent CAM/WACCM the hybrid coefficients do
+    not give pressure at all.  Which field that is depends on the grid the TEM
+    output landed on -- PMID on layer midpoints, PINT on interfaces -- the same
+    rule _find_pressure_field applies in regrid_and_vert_interp.py.
 
     'case_name' selects a test case, or None for the baseline.  'like' is the
-    field being converted; the result is put on its zalat and lev.  Returns None
-    when PMID is unavailable, leaving the caller to fall back.
+    field being converted; the result is put on its zalat and vertical grid.
+    Returns None when the pressure field is unavailable, leaving the caller to
+    fall back.
     """
+    lev_name = utils.vertical_dim(like)
+    if lev_name is None:
+        return None
+    field = utils.pressure_field_name(lev_name)
+
     if case_name is None:
-        fils = adf.data.get_ref_timeseries_file("PMID")
+        fils = adf.data.get_ref_timeseries_file(field)
     else:
-        fils = adf.data.get_timeseries_file(case_name, "PMID")
+        fils = adf.data.get_timeseries_file(case_name, field)
     #End if
     if not fils:
         return None
     ds_pmid = adf.data.load_timeseries_dataset(fils)
-    if ds_pmid is None or "PMID" not in ds_pmid:
+    if ds_pmid is None or field not in ds_pmid:
         return None
-    pmid = ds_pmid["PMID"]
+    pmid = ds_pmid[field]
 
     #CAM writes PMID in Pa; convert here, before the arithmetic below drops attrs.
     if str(pmid.attrs.get("units", "Pa")).lower() in ("hpa", "mb", "millibars"):
@@ -59,9 +65,9 @@ def _zonal_mean_pressure(adf, case_name, like, season):
                 .sel(season=season))
     #End if
 
-    #Zonal mean, then onto the TEM latitude/level grid. The TEM output is on
-    #its own grid (WACCM writes the zonal-mean stream on the interface levels),
-    #so PMID generally has to be interpolated in both lat and lev, not just lat.
+    #Zonal mean, then onto the TEM latitude/level grid. The TEM output has its
+    #own vertical grid, so the pressure generally has to be interpolated in both
+    #lat and level, not just lat.
     if "lon" in pmid.dims:
         pmid = pmid.mean(dim="lon")
     #Interpolating onto a target named 'zalat' renames the dimension for us:
@@ -69,8 +75,16 @@ def _zonal_mean_pressure(adf, case_name, like, season):
                               coords={"zalat": like["zalat"].values})
     pmid = pmid.interp(lat=target_lat, method="linear",
                        kwargs={"fill_value": "extrapolate"})
-    if pmid.sizes.get("lev") != like.sizes.get("lev"):
-        pmid = pmid.interp(lev=like["lev"], method="linear",
+    #Interpolate unless the two vertical coordinates are already identical.
+    #Matching sizes are not enough: the TEM grid and the model grid can have the
+    #same number of levels at different pressures, and xarray would then align
+    #them to an empty intersection instead of raising.
+    pres_lev = utils.vertical_dim(pmid)
+    if pres_lev is not None and not np.array_equal(pmid[pres_lev].values,
+                                                   like[lev_name].values):
+        target_lev = xr.DataArray(like[lev_name].values, dims=lev_name,
+                                  coords={lev_name: like[lev_name].values})
+        pmid = pmid.interp({pres_lev: target_lev}, method="linear",
                            kwargs={"fill_value": "extrapolate"})
     #End if
 
@@ -80,15 +94,18 @@ def _zonal_mean_pressure(adf, case_name, like, season):
 def _to_temperature(adf, case_name, theta, season):
     """Potential temperature -> temperature, using PMID when it is available."""
     pres = _zonal_mean_pressure(adf, case_name, theta, season)
+    lev_name = utils.vertical_dim(theta)
     if pres is None:
-        #'lev' is only the true pressure for a hybrid-sigma coordinate; on the
-        #dry-mass coordinate used by recent CAM/WACCM it is not, so say so
-        #rather than quietly producing a slightly wrong temperature.
+        #The hybrid coordinate is only the true pressure for a hybrid-sigma
+        #vertical coordinate; on the dry-mass coordinate used by recent
+        #CAM/WACCM it is not, so say so rather than quietly producing a
+        #slightly wrong temperature.
+        field = utils.pressure_field_name(lev_name)
         label = case_name if case_name else "the baseline"
-        warnings.warn(f"\t    WARNING: no PMID found for {label}, converting THZM "
-                      "with the hybrid 'lev' coordinate instead. Add 'PMID' to "
-                      "'diag_var_list' for the exact conversion.")
-        pres = theta['lev'] * 100.0
+        warnings.warn(f"\t    WARNING: no {field} found for {label}, converting "
+                      f"THZM with the hybrid '{lev_name}' coordinate instead. Add "
+                      f"'{field}' to 'diag_var_list' for the exact conversion.")
+        pres = theta[lev_name] * 100.0
     #End if
     temperature = theta * (pres / P0) ** KAPPA
     temperature.attrs['units'] = "K"
@@ -381,11 +398,27 @@ def tem(adf):
                 if var == "UTENDEPFD":
                     mseasons = mseasons*1000
                     oseasons = oseasons*1000
-                #difference: each entry should be (lev, zalat)
-                dseasons = mseasons-oseasons
+                #difference: each entry should be (lev, zalat). Test and
+                #baseline can be on different vertical grids -- observations
+                #always are, and CAM may write the zonal-mean stream on
+                #midpoints for one case and interfaces for another -- in which
+                #case there is nothing to difference.
+                #Comparable means the two sit on the same kind of grid AND
+                #share enough levels to contour: xarray aligns them on their
+                #common levels, and equal level counts do not imply equal
+                #levels (ERA5 has 37 pressure levels against WACCM's 71).
+                lev_m = utils.vertical_dim(mseasons)
+                lev_b = utils.vertical_dim(oseasons)
+                comparable = lev_m == lev_b
+                dseasons = mseasons-oseasons if comparable else None
+                if dseasons is None or dseasons[lev_m].size < 2:
+                    comparable = False
+                    dseasons = xr.zeros_like(mseasons)
+                #End if
 
                 #percent change, following the convention in plotting_functions
-                pseasons = dseasons / np.abs(oseasons) * 100.0
+                pseasons = (dseasons / np.abs(oseasons) * 100.0 if comparable
+                            else dseasons)
                 pseasons = pseasons.where(np.isfinite(pseasons), np.nan).fillna(0.0)
 
                 #Gather contour plot options
@@ -400,10 +433,9 @@ def tem(adf):
                 # (especially observations) can be on a different vertical grid
                 # than the test case, and the difference is on their intersection.
                 def _mesh(da):
-                    return np.meshgrid(da['zalat'], da['lev'])
+                    return np.meshgrid(da['zalat'], da[utils.vertical_dim(da)])
                 lats, levs = _mesh(mseasons)
                 lats_b, levs_b = _mesh(oseasons)
-                lats_d, levs_d = _mesh(dseasons)
 
                 # Find the next value below highest vertical level
                 prev_major_tick = 10 ** (np.floor(np.log10(np.min(levs))))
@@ -468,11 +500,8 @@ def tem(adf):
                     plt.clabel(c1, inline=True, fontsize=8, levels=c1.levels)
 
 
-                #Check if the difference has enough common levels to contour.
-                #Test and baseline are aligned on their shared levels, and
-                #contourf needs at least two of them (ERA5 has 37 pressure
-                #levels against WACCM's 71, so the overlap can be 0 or 1).
-                if dseasons['lev'].size < 2:
+                #Nothing to draw when the two cases could not be differenced:
+                if not comparable:
                     #Set empty message for comparison of cases with different vertical levels
                     #TODO: Work towards getting the vertical and horizontal interpolations!! - JR
                     empty_message = "These have different vertical levels\nCan't compare cases currently"
@@ -482,6 +511,7 @@ def tem(adf):
                     ax[2].text(prop_x, prop_y, empty_message,
                                     transform=ax[2].transAxes, bbox=props)
                 else:
+                    lats_d, levs_d = _mesh(dseasons)
                     img2 = ax[2].contourf(lats_d, levs_d, dseasons,
                                             #cmap="BrBG",
                                             cmap=cp_info['cmapdiff'],
