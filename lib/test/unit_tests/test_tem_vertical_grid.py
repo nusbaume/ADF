@@ -124,12 +124,18 @@ def test_unreconcilable_grids_are_reported_not_raised(capsys):
     assert ds_out is ds
 
 
-def test_nothing_recognisable_falls_back_to_midpoints():
-    """No vertical dimension at all: assume midpoints rather than guessing."""
+def test_no_vertical_dimension_is_reported_not_guessed(capsys):
+    """Fields on neither 'lev' nor 'ilev' cannot be used, so say so and skip.
+
+    Guessing a grid here would send calc_tem into a broadcasting error rather
+    than a message naming the case that could not be processed.
+    """
     ds = _dataset()
     for name in TEM_INPUT_VARS:
         ds[name] = ds[name].rename({"lev": "something_else"})
-    assert harmonize_tem_levels(ds)[1] == "lev"
+
+    assert harmonize_tem_levels(ds)[1] is None
+    assert "WARNING" in capsys.readouterr().out
 
 
 def test_tem_variable_without_observations_is_skipped(capsys):

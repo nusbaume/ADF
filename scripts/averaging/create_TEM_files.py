@@ -1,3 +1,7 @@
+"""
+Module to create Transformed Eulerian Mean (TEM) diagnostic files.
+"""
+
 import xarray as xr
 import numpy as np
 from scipy import integrate
@@ -11,17 +15,46 @@ import adf_utils as utils
 
 
 def _per_case(value, default, ncases):
-    """A config entry as one value per case, whatever shape it arrived in."""
+    """
+    Return a config entry as one value per case.
+
+    Parameters
+    ----------
+    value : list, scalar or None
+        The value as it came out of the config file.
+    default : any
+        Used for every case when `value` is None.
+    ncases : int
+        Number of cases.
+
+    Returns
+    -------
+    list
+        `value` unchanged if it was already a list, otherwise `ncases` copies
+        of `value` or of `default`.
+    """
     if value is None:
         return [default] * ncases
     return value if isinstance(value, list) else [value] * ncases
 
 
 def _first_stream(hist_str, default="h4"):
-    """The first history stream of a 'hist_str' entry.
+    """
+    Return the first history stream named by a 'hist_str' config entry.
 
-    The ADF normalizes these to a nested list ([ncases][nstreams]), but a
-    baseline entry arrives as whatever the config held, so unwrap either.
+    Parameters
+    ----------
+    hist_str : str, list or None
+        A history stream entry. The ADF normalizes the test case entries to a
+        nested list ([ncases][nstreams]); a baseline entry arrives as whatever
+        the config file held, so both are unwrapped.
+    default : str, optional
+        Returned when `hist_str` is empty or None.
+
+    Returns
+    -------
+    str
+        The stream name, for example 'h4' or 'cam.h4a'.
     """
     while isinstance(hist_str, list) and hist_str:
         hist_str = hist_str[0]
@@ -29,7 +62,19 @@ def _first_stream(hist_str, default="h4"):
 
 
 def _ensure_dir(path):
-    """Return `path` as a Path, creating it if it is not there yet."""
+    """
+    Return `path` as a Path, creating the directory if it does not exist.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Directory to create.
+
+    Returns
+    -------
+    pathlib.Path
+        The same directory, which now exists.
+    """
     path = Path(path)
     if not path.is_dir():
         print(f"    {path} not found, making new directory")
@@ -39,11 +84,31 @@ def _ensure_dir(path):
 
 
 def _write_obs_tem_file(adf, var_list, res, output_loc):
-    """Write the observation TEM file from pre-computed observational diagnostics.
+    """
+    Write 'Obs.TEMdiag.nc' from pre-computed observational TEM diagnostics.
 
-    Nothing is calculated here: the observational file already holds TEM
-    diagnostics. Only the variable names and coordinate names differ from what
-    the rest of the ADF expects.
+    Parameters
+    ----------
+    adf : AdfDiag
+        The diagnostics object, used for the 'obs_data_loc' setting.
+    var_list : list of str
+        TEM variables being diagnosed, used to find the observation files.
+    res : dict
+        The variable defaults, which name each variable's 'obs_file'.
+    output_loc : pathlib.Path
+        Directory to write the file into.
+
+    Returns
+    -------
+    None
+        Does not return a value, writes a file.
+
+    Notes
+    -----
+    Nothing is calculated here. The observational file already holds TEM
+    diagnostics; only the variable and coordinate names differ from what the
+    rest of the ADF expects. Variables with no observational counterpart are
+    left out, and any that are missing are reported.
     """
     print("\t Processing TEM for observations :")
 
@@ -95,8 +160,36 @@ def _write_obs_tem_file(adf, var_list, res, output_loc):
 
 def create_TEM_files(adf):
     """
-    Calculate the TEM variables and create new netCDF files
+    Calculate the TEM diagnostics and write one netCDF file per case.
 
+    Parameters
+    ----------
+    adf : AdfDiag
+        The diagnostics object that contains all the configuration information
+
+    Returns
+    -------
+    None
+        Does not return a value, writes files.
+
+    Notes
+    -----
+    Directly uses adf for the following:
+    get_cam_info, get_baseline_info, get_basic_info, climo_yrs,
+    variable_defaults, plotting_scripts, var_obs_dict
+
+    Reads the zonal mean fields listed in TEM_INPUT_VARS from the history
+    stream named by 'tem_hist_str' (default 'h4') and writes
+    '<case>.TEMdiag_<start>-<end>.nc' into 'cam_tem_loc'. An existing file is
+    left alone unless 'overwrite_tem' is set.
+
+    A baseline simulation is appended to the list of cases and processed the
+    same way. Observations are different: the observational file already holds
+    TEM diagnostics, so it only needs renaming, which _write_obs_tem_file does.
+
+    A case that cannot be processed is reported and skipped, and the closing
+    message names any that were, so a partial run is not reported as a
+    complete one.
     """
 
     #Notify user that script has started:
@@ -108,7 +201,7 @@ def create_TEM_files(adf):
     case_names    = adf.get_cam_info("cam_case_name", required=True)
     base_name     = adf.get_baseline_info("cam_case_name")
 
-    #Grab h4 history files locations
+    #Where the CAM history files live
     cam_hist_locs = adf.get_cam_info("cam_hist_loc", required=True)
 
     #Extract test case years
@@ -267,28 +360,38 @@ OBS_TEM_VARS = ("uzm", "epfy", "epfz", "vtem", "wtem", "psitem",
 
 
 def harmonize_tem_levels(ds):
-    """Put the TEM input fields on one vertical grid, and say which one.
+    """
+    Put the TEM input fields on a single vertical grid, and report which one.
 
-    CAM may write the zonal-mean fields on layer midpoints ('lev') or on layer
-    interfaces ('ilev'), and a history stream can carry a mix of the two.  When
-    they all agree the native grid is kept, so an interface-only stream stays on
-    interfaces and pairs with PINT.  When they disagree the midpoint grid is used
-    as the common one and the interface fields are interpolated onto it, so the
-    result pairs with PMID.
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        History data holding the fields listed in TEM_INPUT_VARS.
 
     Returns
     -------
-    (xarray.Dataset, str or None)
-        the dataset with the TEM inputs on a single grid, and the name of that
-        vertical dimension -- or None if they cannot be reconciled, which the
-        caller should report and skip over.
+    xarray.Dataset
+        The dataset with those fields on one vertical grid.
+    str or None
+        Name of that vertical dimension, or None when the fields cannot be put
+        on a common grid. The caller reports that and skips the case.
+
+    Notes
+    -----
+    CAM may write the zonal mean fields on layer midpoints ('lev') or on layer
+    interfaces ('ilev'), and a history stream can carry a mix of the two. When
+    they all agree the grid is left alone, so an interface-only stream stays on
+    interfaces and goes with PINT. When they disagree the midpoint grid is used
+    as the common one and the interface fields are interpolated onto it, so the
+    result goes with PMID. See adf_utils.pressure_field_name.
     """
     present = {v: utils.vertical_dim(ds[v]) for v in TEM_INPUT_VARS if v in ds}
     found = {dim for dim in present.values() if dim is not None}
 
     if not found:
-        #Nothing to go on; assume midpoints and let the caller fail loudly if wrong.
-        return ds, "lev"
+        print("\t    WARNING: none of the TEM input fields have a 'lev' or "
+              "'ilev' dimension.")
+        return ds, None
     if len(found) == 1:
         return ds, found.pop()
     #End if
@@ -316,41 +419,64 @@ def harmonize_tem_levels(ds):
 
 def calc_tem(ds, lev_name="lev"):
     """
-    # calc_tem() function to calculate TEM diagnostics on CAM/WACCM output
-    # This assumes the data have already been organized into zonal mean fluxes
-    # Uzm, THzm, VTHzm, Vzm, UVzm, UWzm, Wzm
-    # note that calculations are performed on model interface levels, which is ok
-    # in the stratosphere but not in the troposphere.  If interested in tropospheric
-    # TEM diagnostics, make sure input fields have been interpolated to true pressure levels.
+    Calculate TEM diagnostics for one time step of CAM/WACCM output.
 
-    # The code follows the 'TEM recipe' from Appendix A of Gerber, E. P. and Manzini, E.:
-    # The Dynamics and Variability Model Intercomparison Project (DynVarMIP) for CMIP6:
-    # assessing the stratosphere–troposphere system, Geosci. Model Dev., 9, 3413–3425,
-    # https://doi.org/10.5194/gmd-9-3413-2016, 2016 and the corrigendum.
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        One time step, holding the zonal mean fields listed in TEM_INPUT_VARS
+        (Uzm, Vzm, Wzm, THzm, UVzm, UWzm, VTHzm) with dimensions
+        (`lev_name`, zalat), plus `date` and `datesec`.
+    lev_name : str, optional
+        Name of the vertical dimension the input fields are on, 'lev' for layer
+        midpoints or 'ilev' for interfaces. Use harmonize_tem_levels to settle
+        this, as CAM writes the zonal mean stream either way. The values of
+        that coordinate are taken to be pressure in hPa.
 
-    # pdf available here: https://gmd.copernicus.org/articles/9/3413/2016/gmd-9-3413-2016.pdf,
-    # https://gmd.copernicus.org/articles/9/3413/2016/gmd-9-3413-2016-corrigendum.pdf
+    Returns
+    -------
+    xarray.Dataset
+        UZM, VZM, THZM, EPFY, EPFZ, VTEM, WTEM, PSITEM, UTENDEPFD, UTENDVTEM
+        and UTENDWTEM, on the same vertical grid as the input, along with
+        `date`, `datesec` and the time bounds if the input carried them.
 
-    # Output from post-processing function
+    Notes
+    -----
+    Iterate over time to process more than one time step.
 
-    # Table A1. Momentum budget variable list (2-D monthly / daily zonal means, YZT).
+    On interfaces the calculation is valid in the stratosphere but not in the
+    troposphere. For tropospheric TEM diagnostics, interpolate the input fields
+    to true pressure levels first.
 
-    # Name      Long name [unit]
+    Follows the TEM recipe in Appendix A of Gerber, E. P. and Manzini, E.: The
+    Dynamics and Variability Model Intercomparison Project (DynVarMIP) for
+    CMIP6: assessing the stratosphere-troposphere system, Geosci. Model Dev.,
+    9, 3413-3425, https://doi.org/10.5194/gmd-9-3413-2016, 2016, and its
+    corrigendum:
+    https://gmd.copernicus.org/articles/9/3413/2016/gmd-9-3413-2016.pdf
+    https://gmd.copernicus.org/articles/9/3413/2016/gmd-9-3413-2016-corrigendum.pdf
 
-    # epfy      northward component of the Eliassen–Palm flux [m3 s−2]
-    # epfz      upward component of the Eliassen–Palm flux [m3 s−2]
-    # vtem      Transformed Eulerian mean northward wind [m s−1]
-    # wtem      Transformed Eulerian mean upward wind [m s−1]
-    # psitem    Transformed Eulerian mean mass stream function [kg s−1]
-    # utendepfd tendency of eastward wind due to Eliassen–Palm flux divergence [m s−2]
-    # utendvtem tendency of eastward wind due to TEM northward wind advection and the Coriolis term [m s−2]
-    # utendwtem tendency of eastward wind due to TEM upward wind advection [m s−2]
+    Table A1 of that appendix gives the momentum budget variables produced here
+    (2-D monthly or daily zonal means):
 
-    # this utility based on python code developed by Isla Simpson 25 Feb 2021
-    # initial coding of stand alone function by Dan Marsh 16 Dec 2022
+    ==========  ================================================================
+    Name        Long name [unit]
+    ==========  ================================================================
+    epfy        northward component of the Eliassen-Palm flux [m3 s-2]
+    epfz        upward component of the Eliassen-Palm flux [m3 s-2]
+    vtem        Transformed Eulerian mean northward wind [m s-1]
+    wtem        Transformed Eulerian mean upward wind [m s-1]
+    psitem      Transformed Eulerian mean mass stream function [kg s-1]
+    utendepfd   tendency of eastward wind due to Eliassen-Palm flux divergence
+                [m s-2]
+    utendvtem   tendency of eastward wind due to TEM northward wind advection
+                and the Coriolis term [m s-2]
+    utendwtem   tendency of eastward wind due to TEM upward wind advection
+                [m s-2]
+    ==========  ================================================================
 
-    # NOTE: function expects an xarray dataset with dataarrays of dimension (nlev,nlat)
-    # to process more than one timestep iterate over time.
+    Based on python code developed by Isla Simpson (25 Feb 2021); initial
+    coding of the stand alone function by Dan Marsh (16 Dec 2022).
     """
 
     # constants for TEM calculations

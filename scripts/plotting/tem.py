@@ -1,3 +1,7 @@
+"""
+Module to plot the Transformed Eulerian Mean (TEM) diagnostics.
+"""
+
 #Import standard modules:
 from pathlib import Path
 import numpy as np
@@ -17,19 +21,36 @@ KAPPA = 287.0 / 1004.0  # R_dry / cp_dry
 
 
 def _zonal_mean_pressure(adf, case_name, like, season):
-    """Season-averaged zonal mean pressure (Pa) on the TEM grid, or None.
+    """
+    Return the season-averaged zonal mean pressure on the TEM grid.
+
+    Parameters
+    ----------
+    adf : AdfDiag
+        The diagnostics object, used to find the time series files.
+    case_name : str or None
+        A test case name, or None for the baseline.
+    like : xarray.DataArray
+        The field being converted. The result is put on its zalat and its
+        vertical grid, and that grid decides whether PMID or PINT is read.
+    season : str
+        'ANN', 'DJF', 'JJA', 'MAM' or 'SON'.
+
+    Returns
+    -------
+    xarray.DataArray or None
+        Pressure in Pa on the grid of `like`, or None when the model pressure
+        is not available, which leaves the caller to fall back.
+
+    Notes
+    -----
 
     The ADF prefers the model's own pressure over pressure reconstructed from
     the hybrid coefficients: it is what the model actually used, and for the
     dry-mass vertical coordinate in recent CAM/WACCM the hybrid coefficients do
-    not give pressure at all.  Which field that is depends on the grid the TEM
-    output landed on -- PMID on layer midpoints, PINT on interfaces -- the same
+    not give pressure at all. Which field to read depends on the grid the TEM
+    output landed on, PMID on layer midpoints and PINT on interfaces, the same
     rule _find_pressure_field applies in regrid_and_vert_interp.py.
-
-    'case_name' selects a test case, or None for the baseline.  'like' is the
-    field being converted; the result is put on its zalat and vertical grid.
-    Returns None when the pressure field is unavailable, leaving the caller to
-    fall back.
     """
     lev_name = utils.vertical_dim(like)
     if lev_name is None:
@@ -48,22 +69,13 @@ def _zonal_mean_pressure(adf, case_name, like, season):
         return None
     pmid = ds_pmid[field]
 
-    #CAM writes PMID in Pa; convert here, before the arithmetic below drops attrs.
+    #CAM writes these in Pa; convert before the arithmetic below drops attrs.
     if str(pmid.attrs.get("units", "Pa")).lower() in ("hpa", "mb", "millibars"):
         pmid = pmid * 100.0
     #End if
 
-    #Weight by month length, matching how the TEM fields are averaged:
-    month_length = pmid.time.dt.days_in_month
-    if season == "ANN":
-        weights = month_length / month_length.sum()
-        pmid = (pmid * weights).sum(dim="time")
-    else:
-        grouped = month_length.groupby("time.season")
-        weights = grouped / grouped.sum()
-        pmid = ((pmid * weights).groupby("time.season").sum(dim="time")
-                .sel(season=season))
-    #End if
+    #Averaged the same way as the TEM fields themselves:
+    pmid = utils.seasonal_mean(pmid, season=season, is_climo=False)
 
     #Zonal mean, then onto the TEM latitude/level grid. The TEM output has its
     #own vertical grid, so the pressure generally has to be interpolated in both
@@ -92,14 +104,35 @@ def _zonal_mean_pressure(adf, case_name, like, season):
 
 
 def _to_temperature(adf, case_name, theta, season):
-    """Potential temperature -> temperature, using PMID when it is available."""
+    """
+    Convert zonal mean potential temperature to temperature.
+
+    Parameters
+    ----------
+    adf : AdfDiag
+        The diagnostics object, passed through to _zonal_mean_pressure.
+    case_name : str or None
+        A test case name, or None for the baseline.
+    theta : xarray.DataArray
+        Zonal mean potential temperature, in K.
+    season : str
+        'ANN', 'DJF', 'JJA', 'MAM' or 'SON'.
+
+    Returns
+    -------
+    xarray.DataArray
+        Temperature in K.
+
+    Notes
+    -----
+    Uses the model's own pressure where it can be found. Where it cannot, the
+    hybrid vertical coordinate is used instead and a warning says so, since
+    that coordinate is only the true pressure for a hybrid-sigma vertical
+    coordinate.
+    """
     pres = _zonal_mean_pressure(adf, case_name, theta, season)
     lev_name = utils.vertical_dim(theta)
     if pres is None:
-        #The hybrid coordinate is only the true pressure for a hybrid-sigma
-        #vertical coordinate; on the dry-mass coordinate used by recent
-        #CAM/WACCM it is not, so say so rather than quietly producing a
-        #slightly wrong temperature.
         field = utils.pressure_field_name(lev_name)
         label = case_name if case_name else "the baseline"
         warnings.warn(f"\t    WARNING: no {field} found for {label}, converting "
@@ -112,19 +145,80 @@ def _to_temperature(adf, case_name, theta, season):
     return temperature
 
 
+def _labelled_contours(axis, xmesh, ymesh, data, levels, norm, vres):
+    """
+    Draw labelled black contours over a filled contour plot.
+
+    Parameters
+    ----------
+    axis : matplotlib.axes.Axes
+        Axes to draw on.
+    xmesh, ymesh : numpy.ndarray
+        Coordinate meshes matching `data`.
+    data : xarray.DataArray
+        Field being contoured.
+    levels : array-like
+        Contour levels to draw.
+    norm : matplotlib.colors.Normalize
+        Color normalization, shared with the filled contours.
+    vres : dict
+        Variable defaults, read for the optional 'contour_adjust' entry.
+
+    Returns
+    -------
+    None
+        Does not return a value, draws on `axis`.
+
+    Notes
+    -----
+    A 'contour_adjust' entry divides the labels by a common factor, so a field
+    plotted in units of 1e7 is labelled 2.0 rather than 20000000.0 and the
+    colorbar carries the exponent.
+    """
+    contours = axis.contour(xmesh, ymesh, data, levels=levels, norm=norm,
+                            colors="k", linewidths=0.5)
+    fmt = None
+    if 'contour_adjust' in vres:
+        adjust = float(vres['contour_adjust'])
+        fmt = {level: level / adjust for level in contours.levels}
+    #End if
+    plt.clabel(contours, inline=True, fontsize=8, levels=contours.levels, fmt=fmt)
+
+
 def tem(adf):
     """
-    Plot the contents of the TEM dignostic ouput of 2-D latitude vs vertical pressure maps.
-    
-    Steps:
-     - loop through TEM variables
-     - calculate all-time fields (from individual months)
-     - take difference, calculate statistics
-     - make plots
+    Plot the TEM diagnostics as latitude versus pressure panels.
 
-    Notes:
-     - If any of the TEM cases are missing, the ADF skips this plotting script and moves on.
+    Parameters
+    ----------
+    adf : AdfDiag
+        The diagnostics object that contains all the configuration information
 
+    Returns
+    -------
+    None
+        Does not return a value, produces files.
+
+    Notes
+    -----
+    Directly uses adf for the following:
+    get_cam_info, get_baseline_info, get_basic_info, read_config_var,
+    climo_yrs, case_nicknames, compare_obs, variable_defaults,
+    plotting_scripts, plot_location, add_website_data, debug_log, data
+
+    Reads the TEM files written by create_TEM_files from 'cam_tem_loc'. Each
+    figure has three panels: the test case, the baseline or observations, and
+    their difference. The difference is left as a message when the two are on
+    different vertical grids, which is normal against observations, since ERA5
+    has 37 pressure levels where WACCM has far more.
+
+    THZM is stored as potential temperature and plotted as temperature. The
+    conversion uses the model's own pressure, PMID or PINT depending on the
+    grid, and falls back to the hybrid vertical coordinate with a warning when
+    that pressure is not available.
+
+    If a TEM file is missing the whole script is skipped; a variable missing
+    from a file that is present is reported and skipped on its own.
     """
 
     #Notify user that script has started:
@@ -200,14 +294,6 @@ def tem(adf):
             #End if
             tem_locs.append(tem_case_loc)
         #End for
-
-    #Set seasonal ranges:
-    seasons = {"ANN": np.arange(1,13,1),
-               "DJF": [12, 1, 2],
-               "JJA": [6, 7, 8],
-               "MAM": [3, 4, 5],
-               "SON": [9, 10, 11]
-               }
 
     #Suggestion from Rolando, if QBO is being produced, add utendvtem and utendwtem?
     if "qbo" in adf.plotting_scripts:
@@ -298,8 +384,8 @@ def tem(adf):
             start_year = syear_cases[idx]
             end_year   = eyear_cases[idx]
 
-            #Loop over season dictionary:
-            for s in seasons:
+            #Loop over the seasons the ADF knows about:
+            for s in utils.seasons:
 
                 #Location to save plots
                 plot_name = plot_location / f"{var}_{s}_WACCM_SeasonalCycle_Mean.png"
@@ -322,68 +408,26 @@ def tem(adf):
                 mdata = ds[var].squeeze()
                 odata = ds_base[var].squeeze()
 
-                # APPLY UNITS TRANSFORMATION IF SPECIFIED:
-                # NOTE: looks like our climo files don't have all their metadata
-                mdata = mdata * vres.get("scale_factor",1) + vres.get("add_offset", 0)
-                # update units
+                #Apply the unit conversion from the variable defaults. TEM
+                #files carry little metadata, so the new unit is taken from the
+                #defaults too. Observations have their own scaling, which is
+                #assumed to bring them to the same units, so they keep the unit
+                #string they arrived with.
+                mdata = mdata * vres.get("scale_factor", 1) + vres.get("add_offset", 0)
                 mdata.attrs['units'] = vres.get("new_unit", mdata.attrs.get('units', 'none'))
-
-                # Do the same for the baseline case if need be:
-                if not obs:
-                    odata = odata * vres.get("scale_factor",1) + vres.get("add_offset", 0)
-                    # update units
+                if obs:
+                    odata = (odata * vres.get("obs_scale_factor", 1)
+                             + vres.get("obs_add_offset", 0))
+                else:
+                    odata = odata * vres.get("scale_factor", 1) + vres.get("add_offset", 0)
                     odata.attrs['units'] = vres.get("new_unit", odata.attrs.get('units', 'none'))
-                # Or for observations
-                else:
-                    odata = odata * vres.get("obs_scale_factor",1) + vres.get("obs_add_offset", 0)
-                    # Note: we are going to assume that the specification ensures the conversion makes the units the same. Doesn't make sense to add a different unit.
+                #End if
 
-                #Create array to avoid weighting missing values:
-                md_ones = xr.where(mdata.isnull(), 0.0, 1.0)
-                od_ones = xr.where(odata.isnull(), 0.0, 1.0)
-
-                month_length = mdata.time.dt.days_in_month
-                weights = (month_length.groupby("time.season") / month_length.groupby("time.season").sum())
-
-                #Calculate monthly-weighted seasonal averages:
-                if s == 'ANN':
-
-                    #Calculate annual weights (i.e. don't group by season):
-                    weights_ann = month_length / month_length.sum()
-
-                    mseasons = (mdata * weights_ann).sum(dim='time')
-                    mseasons = mseasons / (md_ones*weights_ann).sum(dim='time')
-
-                    #Calculate monthly weights based on number of days:
-                    if obs:
-                        month_length_obs = odata.time.dt.days_in_month
-                        weights_ann_obs = month_length_obs / month_length_obs.sum()
-                        oseasons = (odata * weights_ann_obs).sum(dim='time')
-                        oseasons = oseasons / (od_ones*weights_ann_obs).sum(dim='time')
-                    else:
-                        month_length_base = odata.time.dt.days_in_month
-                        weights_ann_base = month_length_base / month_length_base.sum()
-                        oseasons = (odata * weights_ann_base).sum(dim='time')
-                        oseasons = oseasons / (od_ones*weights_ann_base).sum(dim='time')
-
-                else:
-                    #this is inefficient because we do same calc over and over
-                    mseasons = (mdata * weights).groupby("time.season").sum(dim="time").sel(season=s)
-                    wgt_denom = (md_ones*weights).groupby("time.season").sum(dim="time").sel(season=s)
-                    mseasons = mseasons / wgt_denom
-
-                    if obs:
-                        month_length_obs = odata.time.dt.days_in_month
-                        weights_obs = (month_length_obs.groupby("time.season") / month_length_obs.groupby("time.season").sum())
-                        oseasons = (odata * weights_obs).groupby("time.season").sum(dim="time").sel(season=s)
-                        wgt_denom = (od_ones*weights_obs).groupby("time.season").sum(dim="time").sel(season=s)
-                        oseasons = oseasons / wgt_denom
-                    else:
-                        month_length_base = odata.time.dt.days_in_month
-                        weights_base = (month_length_base.groupby("time.season") / month_length_base.groupby("time.season").sum())
-                        oseasons = (odata * weights_base).groupby("time.season").sum(dim="time").sel(season=s)
-                        wgt_denom_base = (od_ones*weights_base).groupby("time.season").sum(dim="time").sel(season=s)
-                        oseasons = oseasons / wgt_denom_base
+                #Month-length weighted seasonal (or annual) mean. The weighted
+                #mean renormalizes around missing values, so gaps in either
+                #record are handled without extra bookkeeping.
+                mseasons = utils.seasonal_mean(mdata, season=s, is_climo=False)
+                oseasons = utils.seasonal_mean(odata, season=s, is_climo=False)
 
                 # Derive zonal mean temperature from potential temperature.
                 if var == "THZM":
@@ -395,18 +439,12 @@ def tem(adf):
                     #End if
                 #End if
 
-                if var == "UTENDEPFD":
-                    mseasons = mseasons*1000
-                    oseasons = oseasons*1000
-                #difference: each entry should be (lev, zalat). Test and
-                #baseline can be on different vertical grids -- observations
-                #always are, and CAM may write the zonal-mean stream on
-                #midpoints for one case and interfaces for another -- in which
-                #case there is nothing to difference.
-                #Comparable means the two sit on the same kind of grid AND
-                #share enough levels to contour: xarray aligns them on their
-                #common levels, and equal level counts do not imply equal
-                #levels (ERA5 has 37 pressure levels against WACCM's 71).
+                #The two cases can be differenced only if they are on the same
+                #kind of vertical grid and share at least two levels. xarray
+                #aligns them on their common levels, and equal level counts do
+                #not imply equal levels: ERA5 has 37 pressure levels where
+                #WACCM has 71, and CAM may write the zonal mean stream on
+                #midpoints for one case and interfaces for another.
                 lev_m = utils.vertical_dim(mseasons)
                 lev_b = utils.vertical_dim(oseasons)
                 comparable = lev_m == lev_b
@@ -453,52 +491,11 @@ def tem(adf):
                 ax3 = plt.subplot(gs[2:, 2:6], **cp_info['subplots_opt'])
                 ax = [ax1,ax2,ax3]
 
-                #Contour fill
-                img0 = ax[0].contourf(lats, levs,mseasons, levels=clevs, norm=norm, cmap=cmap)
-                img1 = ax[1].contourf(lats_b, levs_b,oseasons, levels=clevs, norm=norm, cmap=cmap)
-                    
-                #Add contours for highlighting
-                c0 = ax[0].contour(lats,levs,mseasons,levels=clevs[::2], norm=norm,
-                                    colors="k", linewidths=0.5)
-
-                #Check if contour labels need to be adjusted
-                #ie if the values are large and/or in scientific notation, just label the 
-                #contours with the leading numbers.
-                #EXAMPLE: plot values are 200000; plot the contours as 2.0 and let the colorbar
-                #         indicate that it is e5.
-                fmt = {}
-                if 'contour_adjust' in vres:
-                    test_strs = c0.levels/float(vres['contour_adjust'])
-                    for l, str0 in zip(c0.levels, test_strs):
-                        fmt[l] = str0
-
-                    # Add contour labels
-                    plt.clabel(c0, inline=True, fontsize=8, levels=c0.levels, fmt=fmt)
-                else:
-                    # Add contour labels
-                    plt.clabel(c0, inline=True, fontsize=8, levels=c0.levels)
-
-                #Add contours for highlighting
-                c1 = ax[1].contour(lats_b,levs_b,oseasons,levels=clevs[::2], norm=norm,
-                                    colors="k", linewidths=0.5)
-
-                #Check if contour labels need to be adjusted
-                #ie if the values are large and/or in scientific notation, just label the 
-                #contours with the leading numbers.
-                #EXAMPLE: plot values are 200000; plot the contours as 2.0 and let the colorbar
-                #         indicate that it is e5.
-                fmt = {}
-                if 'contour_adjust' in vres:
-                    base_strs = c1.levels/float(vres['contour_adjust'])
-                    for l, str0 in zip(c1.levels, base_strs):
-                        fmt[l] = str0
-
-                    # Add contour labels
-                    plt.clabel(c1, inline=True, fontsize=8, levels=c1.levels, fmt=fmt)
-                else:
-                    # Add contour labels
-                    plt.clabel(c1, inline=True, fontsize=8, levels=c1.levels)
-
+                #Filled contours, then black highlight contours with labels
+                img0 = ax[0].contourf(lats, levs, mseasons, levels=clevs, norm=norm, cmap=cmap)
+                img1 = ax[1].contourf(lats_b, levs_b, oseasons, levels=clevs, norm=norm, cmap=cmap)
+                _labelled_contours(ax[0], lats, levs, mseasons, clevs[::2], norm, vres)
+                _labelled_contours(ax[1], lats_b, levs_b, oseasons, clevs[::2], norm, vres)
 
                 #Nothing to draw when the two cases could not be differenced:
                 if not comparable:
