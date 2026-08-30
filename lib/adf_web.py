@@ -197,13 +197,17 @@ class AdfWeb(AdfObs):
             self._write_run_info_to_log(config_file, active_env)
         #Do nothing if user is not requesting a website to be generated:
         if self.create_html and self.debug_log:
-            plot_path = Path(self.plot_location[0])
-
-            #Create directory path where the website will be built:
-            website_dir = plot_path / "website"
-            Path(website_dir).mkdir(parents=True, exist_ok=True)
-            run_info = f"{website_dir}/{run_info}"
-            self._write_run_info_to_web(run_info, config_file, active_env)
+            #Write the run info into every website directory this run will build.
+            #The content is the same for all of them, but "create_website" reads it
+            #back from the directory belonging to each web_data's case -- including
+            #the "multi-case" entry -- so writing only the first case's copy makes
+            #a multi-case run die on the missing file.
+            for web_paths in self.__case_web_paths.values():
+                website_dir = Path(web_paths['website_dir'])
+                website_dir.mkdir(parents=True, exist_ok=True)
+                self._write_run_info_to_web(f"{website_dir}/{run_info}",
+                                            config_file, active_env)
+            #End for
 
     #########
 
@@ -251,11 +255,16 @@ class AdfWeb(AdfObs):
 
             # Gather Git info
             git_info = self.get_git_info()
-            f.write("\n")
-            f.write(f"<br><br><strong><a {font_22}>Git Info</a></strong><br>")
-            for key,val in git_info.items():
-                f.write(f"{two_space}<a {font_16}><strong>{key}:</strong> {val}</a></><br>")
-            f.write("</p>")
+            if git_info is None:
+                f.write("\n")
+                f.write(f"<br><br><strong><a {font_22}>No git info found</a></strong><br>")
+                f.write("</p>")
+            else:
+                f.write("\n")
+                f.write(f"<br><br><strong><a {font_22}>Git Info</a></strong><br>")
+                for key,val in git_info.items():
+                    f.write(f"{two_space}<a {font_16}><strong>{key}:</strong> {val}</a></><br>")
+                f.write("</p>")
 
     def _write_run_info_to_log(self, config_file, active_env):
 
@@ -291,12 +300,16 @@ class AdfWeb(AdfObs):
 
         # Gather Git info
         git_info = self.get_git_info()
-        git_msg = "\nGit Info:"
-        msg = f"{git_msg}\n{'-' * (len(git_msg)-1)}\n"
-        log_msg += f"\n  {msg}"
+        if git_info is None:
+            msg = "No git info found"
+            log_msg += f"\n  {msg}"
+        else:
+            git_msg = "\nGit Info:"
+            msg = f"{git_msg}\n{'-' * (len(git_msg)-1)}\n"
+            log_msg += f"\n  {msg}"
 
-        for key,val in git_info.items():
-            log_msg += f"  {key}: {val}\n"
+            for key,val in git_info.items():
+                log_msg += f"  {key}: {val}\n"
 
         self.debug_log(log_msg)
 
@@ -837,13 +850,15 @@ class AdfWeb(AdfObs):
             #End if
 
             #List of ADF default plot types
-            avail_plot_types = res["default_ptypes"]
+            #Note: this is a copy, as the list is appended to below and
+            #"res" is re-used on every pass through this loop:
+            avail_plot_types = list(res["default_ptypes"])
 
             #Check if current plot type is in ADF default.
             #If not, add it so the index.html file can include it
             for ptype in plot_types.keys():
                 if ptype not in avail_plot_types:
-                    avail_plot_types.append(plot_types)
+                    avail_plot_types.append(ptype)
 
 
             # External packages that can be run through ADF
@@ -867,7 +882,6 @@ class AdfWeb(AdfObs):
             with open(index_html_file, 'w', encoding='utf-8') as ofil:
                 ofil.write(index_rndr)
             #End with
-
         #End for (web data loop)
 
         #If this is a multi-case instance, then copy website to "main" directory:
@@ -886,8 +900,12 @@ class AdfWeb(AdfObs):
                     #Extract website directory:
                     website_dir = self.__case_web_paths[case_name]['website_dir']
 
-                    #Copy website directory to "main site" directory:
-                    shutil.copytree(website_dir, main_site_path / case_name)
+                    #Copy website directory to "main site" directory.
+                    #dirs_exist_ok: re-running ADF into an existing plot
+                    #location has to refresh these copies rather than die on
+                    #the directory the previous run left behind.
+                    shutil.copytree(website_dir, main_site_path / case_name,
+                                    dirs_exist_ok=True)
 
                     #Also add path to case_sites dictionary:
                     case_sites[case_name] = os.path.join(os.curdir, case_name, "index.html")
