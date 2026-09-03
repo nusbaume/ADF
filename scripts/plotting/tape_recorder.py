@@ -12,7 +12,7 @@ import adf_utils as utils
 def _pick_hist_str(value, substrings):
     """Return the one history stream to search for a case.
 
-    Returns an empty string when the case has no stream among `substrings`.
+    Returns an empty string when the case has no stream among ``substrings``.
     Every case has to yield exactly one answer: the lists built from this are
     indexed by case number, so dropping a case would shift every case after it
     onto the wrong entry.
@@ -78,8 +78,9 @@ def tape_recorder(adfobj):
     # cases it is indexed by below.  A case with no h0 stream contributes an
     # empty string, which makes the search match whichever stream the files
     # are in rather than dropping the case and shifting the rest.
-    case_hist_strs = [_pick_hist_str(cam_case_str, substrings)
-                      for cam_case_str in cam_hist_strs]
+    case_hist_strs = [
+        _pick_hist_str(cam_case_str, substrings) for cam_case_str in cam_hist_strs
+    ]
 
     #Grab test case climo years
     start_years = adfobj.climo_yrs["syears"]
@@ -214,6 +215,13 @@ def tape_recorder(adfobj):
         ts_loc = Path(case_ts_locs[idx])
         hist_str = hist_strs[idx]
         fils = sorted(ts_loc.glob(f'*{hist_str}.{var}.*.nc'))
+        if not fils and hist_str:
+            # A configured stream need not match the names of pre-made time
+            # series files, so fall back to searching without it rather than
+            # dropping the case out of the plot.  This is what
+            # create_climo_files does for the same reason.
+            fils = sorted(ts_loc.glob(f"*.{var}.*.nc"))
+        # End if
         #A directory can hold more than one set of files for one variable, so
         #keep the set needed for this case's years:
         fils = utils.select_ts_files(fils, start_years[idx], end_years[idx])
