@@ -290,20 +290,40 @@ class AdfFileUtilsTestRoutine(unittest.TestCase):
 
         self.assertEqual(select_ts_files([short, long], 5, 15), [short])
 
-    def test_select_keeps_consecutive_chunks(self):
+    def test_select_leaves_consecutive_chunks_alone(self):
 
         """
         A variable split into consecutive chunks -- what GenTS writes with
-        'slice_years' -- has to keep every chunk the range needs, and only
-        those.
+        'slice_years' -- opens as it stands, so there is nothing to choose and
+        every file must come back.
+
+        Narrowing these would break the plots that show a whole record: they
+        ask for all of a case's files, not only the climatology years.
         """
 
         fils = ["case.cam.h0a.T.000101-001012.nc",
                 "case.cam.h0a.T.001101-002012.nc",
                 "case.cam.h0a.T.002101-003012.nc"]
 
-        self.assertEqual(select_ts_files(fils, 1, 20), fils[:2])
-        self.assertEqual(select_ts_files(fils, 15, 25), fils[1:])
+        self.assertEqual(select_ts_files(fils, 1, 20), fils)
+        self.assertEqual(select_ts_files(fils, 15, 25), fils)
+
+    def test_select_keeps_chunks_needed_against_a_duplicate(self):
+
+        """
+        The same chunks, but with a whole-period file of the same run beside
+        them, which is a set that cannot be opened.  Now a choice is needed,
+        and it has to be one self-consistent set.
+        """
+
+        chunks = ["case.cam.h0a.T.000101-001012.nc",
+                  "case.cam.h0a.T.001101-002012.nc"]
+        whole = "case.cam.h0a.T.000101-002012.nc"
+
+        chosen = select_ts_files(chunks + [whole], 1, 20)
+
+        self.assertFalse(ts_files_overlap(chosen))
+        self.assertTrue(chosen == [whole] or chosen == chunks)
 
     def test_select_prefers_whole_set_over_chunks(self):
 
@@ -323,14 +343,76 @@ class AdfFileUtilsTestRoutine(unittest.TestCase):
     def test_select_drops_files_outside_range(self):
 
         """
-        Files that hold none of the requested years are of no use and must not
-        be handed on.
+        When a choice has to be made, a file holding none of the requested
+        years is of no use and must not be handed on.
         """
 
-        fils = ["case.cam.h0a.T.000101-001012.nc",
-                "case.cam.h0a.T.001101-002012.nc"]
+        short = "case.cam.h0a.T.000101-002012.nc"
+        long = "case.cam.h0a.T.000101-004012.nc"
 
-        self.assertEqual(select_ts_files(fils, 11, 20), fils[1:])
+        self.assertEqual(select_ts_files([short, long], 21, 40), [long])
+
+    def test_select_leaves_sub_year_files_alone(self):
+
+        """
+        Only years are compared, so halves of a year must never be weighed
+        against one another: dropping one would quietly lose half the data.
+        """
+
+        halves = ["case.cam.h1a.PRECT.00010101-00010630.nc",
+                  "case.cam.h1a.PRECT.00010701-00011231.nc"]
+
+        #These combine cleanly, so they are left alone on that count:
+        self.assertEqual(select_ts_files(halves, 1, 1), halves)
+
+        #And still left alone when a whole-year file of the same run makes the
+        #set one that cannot be opened:
+        whole = "case.cam.h1a.PRECT.00010101-00011231.nc"
+        self.assertEqual(select_ts_files(halves + [whole], 1, 1),
+                         halves + [whole])
+
+    def test_select_resolves_partly_overlapping_sets(self):
+
+        """
+        Years 1-20 beside years 10-40 is the layout that raised "Resulting
+        object does not have monotonic global indexes".  A file that runs on
+        past the requested years is dropped safely, because the file kept
+        holds all of the years asked for.
+        """
+
+        early = "case.cam.h0a.T.000101-002012.nc"
+        late = "case.cam.h0a.T.001001-004012.nc"
+
+        self.assertEqual(select_ts_files([early, late], 1, 20), [early])
+        self.assertEqual(select_ts_files([early, late], 10, 40), [late])
+
+    def test_select_leaves_sub_year_boundaries_alone(self):
+
+        """
+        Two sets whose boundary falls inside a year: keeping only the first
+        would drop the second half of year 5 from a five-year request, which
+        comparing years alone cannot see.  So the set comes back whole.
+        """
+
+        fils = ["case.cam.h0a.T.00010101-00050630.nc",
+                "case.cam.h0a.T.00050701-00101231.nc"]
+
+        self.assertEqual(select_ts_files(fils, 1, 5), fils)
+
+    def test_select_refuses_a_cover_it_cannot_open(self):
+
+        """
+        A 25-year set beside 10-year chunks of the same run: the greedy walk
+        would hold the 25-year file and the last chunk, which overlap.  Handing
+        that back is no better than not choosing, so the set comes back whole.
+        """
+
+        fils = ["case.cam.h0a.T.000101-002512.nc",
+                "case.cam.h0a.T.000101-001012.nc",
+                "case.cam.h0a.T.001101-002012.nc",
+                "case.cam.h0a.T.002101-003012.nc"]
+
+        self.assertEqual(select_ts_files(fils, 1, 30), fils)
 
     def test_select_passes_through_when_undecidable(self):
 
@@ -340,19 +422,25 @@ class AdfFileUtilsTestRoutine(unittest.TestCase):
         exactly the behavior it had before.
         """
 
+        #Two sets of the same run with a gap after them, so a choice is
+        #wanted but the requested range cannot be covered:
         fils = ["case.cam.h0a.T.000101-001012.nc",
-                "case.cam.h0a.T.002101-003012.nc"]
+                "case.cam.h0a.T.000101-000512.nc"]
 
         #No years given:
         self.assertEqual(select_ts_files(fils, None, None), fils)
         self.assertEqual(select_ts_files(fils, "", ""), fils)
-        #Gap between the two files:
+        #Years past what the files hold:
         self.assertEqual(select_ts_files(fils, 1, 30), fils)
         #Unreadable names:
         unreadable = ["case.cam.h0a.T.first.nc", "case.cam.h0a.T.second.nc"]
         self.assertEqual(select_ts_files(unreadable, 1, 20), unreadable)
         #Nothing to choose between:
         self.assertEqual(select_ts_files(fils[:1], 1, 10), fils[:1])
+        #Files that open together as they stand:
+        clean = ["case.cam.h0a.T.000101-001012.nc",
+                 "case.cam.h0a.T.001101-002012.nc"]
+        self.assertEqual(select_ts_files(clean, 1, 10), clean)
         #A backwards range, which would otherwise cover nothing at all:
         self.assertEqual(select_ts_files(fils, 20, 1), fils)
 

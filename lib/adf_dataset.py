@@ -132,6 +132,21 @@ class AdfData:
     # Time series files
     #------------------
     # Test case(s)
+    def _select_ts_files(self, fils, syr, eyr, field):
+        """Narrow time series files to the years wanted, saying so in the log.
+
+        Files are only narrowed when they could not be opened together, so a
+        message here means the directory held more than one set for `field`.
+        """
+        chosen = utils.select_ts_files(fils, syr, eyr)
+        if len(chosen) != len(fils):
+            msg = f"time series for '{field}': {len(fils)} files found, using "
+            msg += f"the {len(chosen)} needed for years {syr}-{eyr}: "
+            msg += ", ".join(str(Path(f).name) for f in chosen)
+            self.adf.debug_log(msg)
+        #End if
+        return chosen
+
     def get_timeseries_file(self, case, field, hist_str=None):
         """Return list of test time series files.
 
@@ -153,8 +168,8 @@ class AdfData:
             ts_filenames = f'{case}.*.{field}.*nc'
         fils = utils.find_ts_files(ts_loc, ts_filenames)
         climo_yrs = self.adf.climo_yrs
-        return utils.select_ts_files(fils, climo_yrs["syears"][caseindex],
-                                     climo_yrs["eyears"][caseindex])
+        return self._select_ts_files(fils, climo_yrs["syears"][caseindex],
+                                     climo_yrs["eyears"][caseindex], field)
 
     # Reference case (baseline/obs)
     def get_ref_timeseries_file(self, field, hist_str=None):
@@ -174,8 +189,8 @@ class AdfData:
             ts_filenames = f'{self.ref_case_label}.*.{field}.*nc'
         fils = utils.find_ts_files(ts_loc, ts_filenames)
         climo_yrs = self.adf.climo_yrs
-        return utils.select_ts_files(fils, climo_yrs["syear_baseline"],
-                                     climo_yrs["eyear_baseline"])
+        return self._select_ts_files(fils, climo_yrs["syear_baseline"],
+                                     climo_yrs["eyear_baseline"], field)
 
 
     def load_timeseries_dataset(self, fils):

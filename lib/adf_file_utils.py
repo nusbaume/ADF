@@ -90,23 +90,26 @@ def _ts_file_years(fil):
 
 def select_ts_files(fils, syr, eyr):
     """
-    Narrow a set of time series files to those needed to cover a year range.
+    Narrow a set of time series files to those needed for a year range.
 
     A time series directory can hold more than one set of files for the same
     variable: a run post-processed over years 1-20 and then, once it had been
     extended, over years 1-40 leaves both sets behind.  Those sets cannot be
-    opened together -- the combined time axis would have duplicate times -- but
-    either one alone is fine as long as it covers the years being plotted, so
-    the configured ``start_year``/``end_year`` are enough to choose between
+    opened together -- the combined time axis would have duplicate times --
+    but either one alone is fine as long as it covers the years being plotted,
+    so the configured ``start_year``/``end_year`` are enough to choose between
     them.
 
-    Files are picked greedily: at each step take the file that starts at or
-    before the first year not yet covered, preferring the smallest one that
-    holds all of the years still needed and otherwise the one that reaches
-    furthest.  A variable split into consecutive chunks (what GenTS produces
-    with 'slice_years') therefore still gets all of its chunks, while a
-    duplicate set is passed over in favor of the smallest single set that
-    covers the request.
+    Only a set that cannot be opened as it stands is narrowed.  Files that
+    combine cleanly, including a variable split into consecutive chunks (what
+    GenTS produces with 'slice_years'), are returned untouched: the plots that
+    show a whole record ask for every file a case has, not only the years the
+    climatologies use, and there is nothing to resolve for them anyway.
+
+    Where a choice is needed, files are picked greedily: at each step take the
+    file that starts at or before the first year not yet covered, preferring
+    the smallest one that holds all of the years still needed and otherwise
+    the one that reaches furthest.
 
     Parameters
     ----------
@@ -121,14 +124,25 @@ def select_ts_files(fils, syr, eyr):
     -------
     list
         The files needed for [syr, eyr], in chronological order.  The input
-        list is returned unchanged when there is nothing to choose between
-        (fewer than two files), when no years were given, when a name's dates
-        could not be read, or when the files leave a gap in the requested
-        range -- in each of those cases this function has nothing to add and
-        the caller is left with the behavior it had before.
+        list is returned unchanged whenever this function has nothing to add:
+        fewer than two files, files that already combine cleanly, no years
+        given, a year range given backwards, names whose dates could not be
+        read, dates that would have to be compared at finer than year
+        resolution, a gap in the requested range, or a set whose files cannot
+        be reduced to a combinable choice.  In each case the caller is left
+        with the behavior it had before.
     """
     fils = list(fils)
-    if len(fils) < 2 or syr is None or eyr is None or syr == "" or eyr == "":
+    if len(fils) < 2:
+        return fils
+    #End if
+
+    #Files that can be opened together need no choosing:
+    if not ts_files_overlap(fils):
+        return fils
+    #End if
+
+    if syr is None or eyr is None or syr == "" or eyr == "":
         return fils
     #End if
     syr, eyr = int(syr), int(eyr)
@@ -137,19 +151,25 @@ def select_ts_files(fils, syr, eyr):
         return fils
     #End if
 
-    #Files that overlap the requested range at all:
-    candidates = []
-    for fil in fils:
-        years = _ts_file_years(fil)
-        if years is None:
-            #Unrecognized name, so make no promises about the set:
-            return fils
-        #End if
-        start, end = years
-        if start <= eyr and end >= syr:
-            candidates.append((start, end, fil))
-        #End if
-    #End for
+    pairs = _ts_file_span_pairs(fils)
+    if pairs is None:
+        #Unrecognized names, so make no promises about the set:
+        return fils
+    #End if
+
+    #The requested years as dates, so that what is dropped can be checked
+    #below at the resolution the file names actually use:
+    fill = {4: ("", ""), 6: ("01", "12"), 8: ("0101", "1231")}
+    width = len(pairs[0][0])
+    if width not in fill:
+        #An unfamiliar date width, so make no promises about the set:
+        return fils
+    #End if
+    req = (f"{syr:04d}{fill[width][0]}", f"{eyr:04d}{fill[width][1]}")
+
+    #Files that hold some of the requested years:
+    candidates = [(int(start[:4]), int(end[:4]), fil) for start, end, fil in pairs
+                  if int(start[:4]) <= eyr and int(end[:4]) >= syr]
 
     chosen = []
     needed = syr
@@ -166,15 +186,79 @@ def select_ts_files(fils, syr, eyr):
         #what lets consecutive chunks be picked up in turn:
         covering = [c for c in reaching if c[1] >= eyr]
         if covering:
-            _, end, fil = min(covering, key=lambda c: c[1] - c[0])
+            _, end_yr, fil = min(covering, key=lambda c: c[1] - c[0])
         else:
-            _, end, fil = max(reaching, key=lambda c: c[1])
+            _, end_yr, fil = max(reaching, key=lambda c: c[1])
         #End if
         chosen.append(fil)
-        needed = end + 1
+        needed = end_yr + 1
     #End while
 
+    #A greedy walk can still end up holding two files that overlap (a 25-year
+    #set beside 10-year chunks of the same run, say).  Handing back a set that
+    #cannot be opened would be no better than not choosing at all:
+    if ts_files_overlap(chosen):
+        return fils
+    #End if
+
+    #Only years were compared above, so make sure nothing was dropped that
+    #the chosen files do not hold.  Two halves of a year
+    #(00010101-00010630 beside 00010701-00011231) look alike by year, and
+    #dropping one of them would quietly lose half the data; a file that merely
+    #runs on past the requested years (years 10-40 beside years 1-20, with
+    #years 1-20 asked for) is a different matter and is dropped safely:
+    kept = [(start, end) for start, end, fil in pairs if fil in chosen]
+    for start, end, fil in pairs:
+        if fil in chosen:
+            continue
+        #End if
+        lower, upper = max(start, req[0]), min(end, req[1])
+        if lower > upper:
+            #Holds none of the requested period:
+            continue
+        #End if
+        if not any(k_start <= lower and k_end >= upper for k_start, k_end in kept):
+            return fils
+        #End if
+    #End for
+
     return chosen
+
+
+def _ts_file_span_pairs(fils):
+    """
+    Parse the {start}-{end} date token out of each name, keeping the file.
+
+    Parameters
+    ----------
+    fils : list
+        strings or paths to time series files
+
+    Returns
+    -------
+    list of tuple or None
+        (start, end, file) in the order given, or ``None`` if any name could
+        not be parsed or the dates do not all use the same width.
+    """
+    pairs = []
+    for fil in fils:
+        #Last dot-separated token of the stem -- second-to-last of the file
+        #name -- e.g. "001001-001112" in "case.cam.h0a.T.001001-001112.nc":
+        date_str = Path(fil).stem.split(".")[-1]
+        start, sep, end = date_str.partition("-")
+        if not sep or not start.isdigit() or not end.isdigit():
+            return None
+        #End if
+        pairs.append((start, end, fil))
+    #End for
+
+    #Zero-padded dates of equal width sort chronologically as strings, but
+    #mixed widths (e.g. YYYY next to YYYYMM) would not, so bail out on those:
+    if len({len(d) for start, end, _ in pairs for d in (start, end)}) != 1:
+        return None
+    #End if
+
+    return pairs
 
 
 def _ts_file_spans(fils):
@@ -194,22 +278,13 @@ def _ts_file_spans(fils):
         Callers treat ``None`` as "make no promises about these files".
     """
     spans = []
-    for fil in fils:
-        #Last dot-separated token of the stem -- second-to-last of the file
-        #name -- e.g. "001001-001112" in "case.cam.h0a.T.001001-001112.nc":
-        date_str = Path(fil).stem.split(".")[-1]
-        start, sep, end = date_str.partition("-")
-        if not sep or not start.isdigit() or not end.isdigit():
+    for start, end, _ in _ts_file_span_pairs(fils) or [(None, None, None)]:
+        if start is None:
             #Unrecognized name, so make no promises about it:
             return None
+        #End if
         spans.append((start, end))
     #End for
-
-    #Zero-padded dates of equal width sort chronologically as strings, but
-    #mixed widths (e.g. YYYY next to YYYYMM) would not, so bail out on those:
-    if len({len(s) for span in spans for s in span}) != 1:
-        return None
-    #End if
 
     return sorted(spans)
 
