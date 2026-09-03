@@ -24,7 +24,7 @@ sys.path.append(_ADF_LIB_DIR)
 #adf_file_utils imports nothing but pathlib, so these run in CI, where only
 #PyYAML and pytest are installed:
 from adf_file_utils import (find_ts_files, select_ts_files, ts_files_overlap,
-                            ts_file_span)
+                            ts_files_need_combining, ts_file_span)
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #Main adf_file_utils testing routine, used when script is run directly
@@ -200,6 +200,46 @@ class AdfFileUtilsTestRoutine(unittest.TestCase):
                 Path("/some/dir/case.cam.h0a.T.002001-002912.nc")]
 
         self.assertFalse(ts_files_overlap(fils))
+
+    def test_need_combining(self):
+
+        """
+        The question a caller wanting one file per variable has to ask.
+
+        Used by the MDTF file move, which writes one file per variable: one
+        file needs no combining, consecutive files do, and overlapping files
+        cannot be combined at all -- attempting it raises and would end the
+        run.
+        """
+
+        one = ["case.cam.h0a.T.000101-002012.nc"]
+        chunks = ["case.cam.h0a.T.000101-001012.nc",
+                  "case.cam.h0a.T.001101-002012.nc"]
+        overlapping = ["case.cam.h0a.T.000101-002012.nc",
+                       "case.cam.h0a.T.001001-004012.nc"]
+        unreadable = ["case.cam.h0a.T.first.nc", "case.cam.h0a.T.second.nc"]
+
+        self.assertFalse(ts_files_need_combining([]))
+        self.assertFalse(ts_files_need_combining(one))
+        self.assertTrue(ts_files_need_combining(chunks))
+        self.assertFalse(ts_files_need_combining(overlapping))
+        self.assertFalse(ts_files_need_combining(unreadable))
+
+    def test_need_combining_agrees_with_selection(self):
+
+        """
+        The two functions have to agree, because the caller applies them in
+        turn: whatever selection could not resolve must not then be combined.
+        """
+
+        overlapping = ["case.cam.h0a.T.000101-002012.nc",
+                       "case.cam.h0a.T.001001-004012.nc"]
+
+        #Years 1-40 cannot be covered without holding both files, so selection
+        #passes them through -- and they must not be combined:
+        chosen = select_ts_files(overlapping, 1, 40)
+        self.assertEqual(chosen, overlapping)
+        self.assertFalse(ts_files_need_combining(chosen))
 
     def test_ts_file_span_single_file(self):
 

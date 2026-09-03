@@ -95,7 +95,7 @@ for root, dirs, files in os.walk(_DIAG_SCRIPTS_PATH):
 # +++++++++++++++++++++++++++++
 
 # Finally, import needed ADF modules:
-from adf_file_utils import select_ts_files, ts_files_overlap
+from adf_file_utils import select_ts_files, ts_files_need_combining
 from adf_web import AdfWeb
 from adf_dataset import AdfData
 from adf_derive import check_derive, derive_variable
@@ -1275,8 +1275,7 @@ class AdfDiag(AdfWeb):
                     # cannot be combined -- select_ts_files hands back a set it
                     # could not resolve -- so those keep the older behavior of
                     # copying the first and saying so.
-                    combine_files = (len(adf_file_list) > 1
-                                     and not ts_files_overlap(adf_file_list))
+                    combine_files = ts_files_need_combining(adf_file_list)
 
                     if len(adf_file_list) == 1:
                         if verbose > 1:

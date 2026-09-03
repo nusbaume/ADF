@@ -14,6 +14,8 @@ select_ts_files(fils, syr, eyr)
     Narrow a set of time series files to those needed for a year range.
 ts_files_overlap(fils)
     Report whether a set of time series files cover overlapping periods.
+ts_files_need_combining(fils)
+    Report whether a set of time series files has to be combined into one.
 ts_file_span(fils)
     Report the period a set of time series files covers, taken together.
 
@@ -301,6 +303,31 @@ def ts_files_overlap(fils):
     #End for
 
     return False
+
+
+def ts_files_need_combining(fils):
+    """
+    Report whether time series files have to be combined into a single file.
+
+    Answers the question a caller that wants one file per variable has to ask,
+    which is not the same as whether the files overlap: one file needs no
+    combining, several consecutive files do, and several overlapping files
+    cannot be combined at all and so must not be attempted.
+
+    Parameters
+    ----------
+    fils : list
+        strings or paths to time series files
+
+    Returns
+    -------
+    bool
+        True only when there is more than one file and the files can be opened
+        together.  False for a single file, for files that overlap, and for
+        names whose dates could not be read -- in each of those cases combining
+        is either unnecessary or unsafe.
+    """
+    return len(fils) > 1 and not ts_files_overlap(fils)
 
 
 def ts_file_span(fils):
