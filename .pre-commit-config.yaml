@@ -6,4 +6,19 @@ repos:
     hooks:
       - id: check-yaml
 
+  #Run the "black" python code formatter.  The version here must
+  #match the version pinned in the "black_formatting" job of
+  #".github/workflows/ADF_linting.yaml", so that a developer running
+  #"pre-commit" locally gets the same answer that CI will.  All of
+  #black's actual settings (line length, excluded paths) live in the
+  #"[tool.black]" section of the top-level "pyproject.toml".
+  - repo: https://github.com/psf/black
+    rev: 25.11.0
+    hooks:
+      - id: black
+        #Only the ADF framework code under "lib" is currently
+        #formatted with black; the "scripts" directory is
+        #intentionally left alone:
+        files: ^lib/
+
 #End of file.
