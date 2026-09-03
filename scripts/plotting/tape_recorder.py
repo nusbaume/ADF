@@ -8,6 +8,34 @@ import pandas as pd
 from pathlib import Path
 import adf_utils as utils
 
+
+def _pick_hist_str(value, substrings):
+    """Return the one history stream to search for a case.
+
+    Returns an empty string when the case has no stream among `substrings`.
+    Every case has to yield exactly one answer: the lists built from this are
+    indexed by case number, so dropping a case would shift every case after it
+    onto the wrong entry.
+    """
+    matches = [string for string in _as_list(value) if string in substrings]
+    return matches[0] if matches else ""
+
+
+def _as_list(value):
+    """Return a history string setting as a list.
+
+    The ADF holds one stream as a plain string, several as a list, and an
+    empty string when none was configured, so all three have to be accepted.
+    """
+    if not value:
+        return []
+    # End if
+    if isinstance(value, str):
+        return [value]
+    # End if
+    return list(value)
+
+
 def tape_recorder(adfobj):
     """
     Calculate the weighted latitude average for the simulations and 
@@ -46,13 +74,12 @@ def tape_recorder(adfobj):
     # Filter the list to include only strings that are exactly in the possible h0 strings
     # - Search for either h0 or h0a
     substrings = {"cam.h0","cam.h0a"}
-    case_hist_strs = []
-    for cam_case_str in cam_hist_strs:
-        # Check each possible h0 string
-        for string in cam_case_str:
-            if string in substrings:
-               case_hist_strs.append(string)
-               break
+    # Exactly one entry per case, so that this list stays aligned with the
+    # cases it is indexed by below.  A case with no h0 stream contributes an
+    # empty string, which makes the search match whichever stream the files
+    # are in rather than dropping the case and shifting the rest.
+    case_hist_strs = [_pick_hist_str(cam_case_str, substrings)
+                      for cam_case_str in cam_hist_strs]
 
     #Grab test case climo years
     start_years = adfobj.climo_yrs["syears"]
@@ -83,10 +110,12 @@ def tape_recorder(adfobj):
         end_years = end_years+[data_end_year]
 
         #Grab history string:
-        baseline_hist_strs = adfobj.hist_string["base_hist_str"]
-        # Filter the list to include only strings that are exactly in the substrings list
-        base_hist_strs = [string for string in baseline_hist_strs if string in substrings]
-        hist_strs = case_hist_strs + base_hist_strs
+        # The baseline stream is a string when one is configured, a list when
+        # several are, and empty when the baseline runs on pre-made time series
+        # with no stream given.  It contributes one entry in every case.
+        hist_strs = case_hist_strs + [
+            _pick_hist_str(adfobj.hist_string["base_hist_str"], substrings)
+        ]
     else:
         hist_strs = case_hist_strs
     #End if
@@ -144,7 +173,11 @@ def tape_recorder(adfobj):
     # MLS data
     mls = xr.open_dataset(obs_loc / "mls_h2o_latNpressNtime_3d_monthly_v5.nc")
     mls = mls.rename(x='lat', y='lev', t='time')
-    time = pd.date_range("2004-09","2021-11",freq='M')
+    # Monthly from September 2004, as many steps as the file holds.  'MS'
+    # (month start) is used rather than the month-end alias, which pandas
+    # renamed from 'M' to 'ME' in 2.2 and removed in 3.0; only the month of
+    # each step matters, since the data are grouped by month below.
+    time = pd.date_range("2004-09-01", periods=mls.sizes["time"], freq="MS")
     mls['time'] = time
     mls = cosweightlat(mls.H2O,-10,10)
     mls = mls.groupby('time.month').mean('time')

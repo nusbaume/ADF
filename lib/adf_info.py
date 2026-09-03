@@ -208,6 +208,18 @@ class AdfInfo(AdfConfig):
             # Read hist_str (component.hist_num, eg cam.h0) from the yaml file
             baseline_hist_str = self.get_baseline_info("hist_str")
 
+            # Record the stream the user configured straight away, so that it
+            # is available whether the years come from history files or from
+            # pre-made time series.  Only what was actually given is recorded:
+            # with pre-made time series and no stream configured this stays
+            # empty, and the searches downstream go on matching any stream.
+            if baseline_hist_str and not isinstance(baseline_hist_str, list):
+                baseline_hist_str = [baseline_hist_str]
+            # End if
+            if baseline_hist_str:
+                self.__base_hist_str = baseline_hist_str
+            # End if
+
             #Check if any time series files are pre-made
             baseline_ts_done   = self.get_baseline_info("cam_ts_done")
 
@@ -251,15 +263,12 @@ class AdfInfo(AdfConfig):
 
             # Check if history file path exists:
             elif baseline_hist_locs and any(baseline_hist_locs):
-                #Check if user provided
+                # History files are found by name, so a stream is needed here
+                # even when the user did not give one:
                 if not baseline_hist_str:
-                    baseline_hist_str = ['cam.h0a']
-                else:
-                    #Make list if not already
-                    if not isinstance(baseline_hist_str, list):
-                        baseline_hist_str = [baseline_hist_str]
-                #Initialize baseline history string list
-                self.__base_hist_str = baseline_hist_str
+                    baseline_hist_str = ["cam.h0a"]
+                    self.__base_hist_str = baseline_hist_str
+                # End if
 
                 #Grab first possible hist string, just looking for years of run
                 base_hist_str = baseline_hist_str[0]
