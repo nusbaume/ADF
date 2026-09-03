@@ -353,6 +353,8 @@ class AdfFileUtilsTestRoutine(unittest.TestCase):
         self.assertEqual(select_ts_files(unreadable, 1, 20), unreadable)
         #Nothing to choose between:
         self.assertEqual(select_ts_files(fils[:1], 1, 10), fils[:1])
+        #A backwards range, which would otherwise cover nothing at all:
+        self.assertEqual(select_ts_files(fils, 20, 1), fils)
 
     def test_select_accepts_paths_and_year_strings(self):
 

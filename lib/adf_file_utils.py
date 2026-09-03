@@ -132,6 +132,10 @@ def select_ts_files(fils, syr, eyr):
         return fils
     #End if
     syr, eyr = int(syr), int(eyr)
+    if syr > eyr:
+        #A backwards range covers nothing, so there is no choice to make:
+        return fils
+    #End if
 
     #Files that overlap the requested range at all:
     candidates = []
