@@ -1273,11 +1273,14 @@ class AdfDiag(AdfWeb):
                         if verbose > 1:
                             print(f"Copying ts file: {adf_file_list} to MDTF dir")
                     elif len(adf_file_list) > 1:
-                        if verbose > 0:
+                        # A variable split into consecutive files, which is what
+                        # GenTS writes when 'gents_slice_years' is set.  MDTF
+                        # wants one file per variable, so these are combined
+                        # below rather than one of them being picked.
+                        if verbose > 1:
                             print(
-                                f"""WARNING: found multiple timeseries files {adf_file_list}.
-                                 Continuing with best guess; suggest cleaning up multiple 
-                                    dates in ts dir"""
+                                f"Combining {len(adf_file_list)} ts files into "
+                                "one file for the MDTF dir"
                             )
                     else:
                         if verbose > 1:
@@ -1286,6 +1289,7 @@ class AdfDiag(AdfWeb):
                                      found in {adf_file_str}. Skipping"""
                             )
                         continue  # skip this case/hist_str/var file
+                    adf_file_list = sorted(adf_file_list)
                     adf_file = adf_file_list[0]
 
                     # If freq is not set, it means we just started this hist_str. 
@@ -1353,9 +1357,21 @@ class AdfDiag(AdfWeb):
                             )
                         continue  # simply skip file copy for this variable:
 
-                    if verbose > 1:
-                        print(f"copying {adf_file} to {mdtf_file}")
-                    shutil.copyfile(adf_file, mdtf_file)
+                    if len(adf_file_list) == 1:
+                        if verbose > 1:
+                            print(f"copying {adf_file} to {mdtf_file}")
+                        shutil.copyfile(adf_file, mdtf_file)
+                    else:
+                        # Consecutive files, so write them out as the single
+                        # file MDTF expects instead of copying just the first:
+                        if verbose > 1:
+                            print(f"writing {adf_file_list} to {mdtf_file}")
+                        with xr.open_mfdataset(
+                            adf_file_list, decode_times=False, combine="by_coords"
+                        ) as mdtf_ds:
+                            mdtf_ds.to_netcdf(mdtf_file)
+                        # End with
+                    # End if
                 # end for hist_str
             # end for var
         # end for case
