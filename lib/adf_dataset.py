@@ -140,10 +140,15 @@ class AdfData:
         """
         chosen = utils.select_ts_files(fils, syr, eyr)
         if len(chosen) != len(fils):
-            msg = f"time series for '{field}': {len(fils)} files found, using "
-            msg += f"the {len(chosen)} needed for years {syr}-{eyr}: "
-            msg += ", ".join(str(Path(f).name) for f in chosen)
-            self.adf.debug_log(msg)
+            msg = f"\t    INFO: '{field}' has {len(fils)} time series files that "
+            msg += "cannot be used together, so the "
+            msg += f"{len(chosen)} needed for years {syr}-{eyr} were used."
+            #Say it on screen as well as in the log: the numbers a user sees
+            #change when this happens, and that should not be silent.
+            print(msg)
+            self.adf.debug_log(
+                msg + "  Files used: "
+                + ", ".join(str(Path(f).name) for f in chosen))
         #End if
         return chosen
 

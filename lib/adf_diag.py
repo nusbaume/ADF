@@ -95,7 +95,7 @@ for root, dirs, files in os.walk(_DIAG_SCRIPTS_PATH):
 # +++++++++++++++++++++++++++++
 
 # Finally, import needed ADF modules:
-from adf_file_utils import select_ts_files
+from adf_file_utils import select_ts_files, ts_files_overlap
 from adf_web import AdfWeb
 from adf_dataset import AdfData
 from adf_derive import check_derive, derive_variable
@@ -1269,18 +1269,30 @@ class AdfDiag(AdfWeb):
                         self.climo_yrs["syears"][case_idx],
                         self.climo_yrs["eyears"][case_idx])
 
+                    # Consecutive files, which is what GenTS writes when
+                    # 'gents_slice_years' is set, are combined below, since
+                    # MDTF wants one file per variable.  Files that overlap
+                    # cannot be combined -- select_ts_files hands back a set it
+                    # could not resolve -- so those keep the older behavior of
+                    # copying the first and saying so.
+                    combine_files = (len(adf_file_list) > 1
+                                     and not ts_files_overlap(adf_file_list))
+
                     if len(adf_file_list) == 1:
                         if verbose > 1:
                             print(f"Copying ts file: {adf_file_list} to MDTF dir")
-                    elif len(adf_file_list) > 1:
-                        # A variable split into consecutive files, which is what
-                        # GenTS writes when 'gents_slice_years' is set.  MDTF
-                        # wants one file per variable, so these are combined
-                        # below rather than one of them being picked.
+                    elif combine_files:
                         if verbose > 1:
                             print(
                                 f"Combining {len(adf_file_list)} ts files into "
                                 "one file for the MDTF dir"
+                            )
+                    elif len(adf_file_list) > 1:
+                        if verbose > 0:
+                            print(
+                                f"""WARNING: found multiple timeseries files {adf_file_list}
+                                 covering overlapping periods. Continuing with the first;
+                                    suggest cleaning up multiple dates in ts dir"""
                             )
                     else:
                         if verbose > 1:
@@ -1357,21 +1369,32 @@ class AdfDiag(AdfWeb):
                             )
                         continue  # simply skip file copy for this variable:
 
-                    if len(adf_file_list) == 1:
-                        if verbose > 1:
-                            print(f"copying {adf_file} to {mdtf_file}")
-                        shutil.copyfile(adf_file, mdtf_file)
-                    else:
-                        # Consecutive files, so write them out as the single
-                        # file MDTF expects instead of copying just the first:
+                    if combine_files:
+                        # Write the consecutive files out as the single file
+                        # MDTF expects instead of copying just the first.  If
+                        # combining fails for any reason, copying one file is
+                        # still better than ending the whole ADF run:
                         if verbose > 1:
                             print(f"writing {adf_file_list} to {mdtf_file}")
-                        with xr.open_mfdataset(
-                            adf_file_list, decode_times=False, combine="by_coords"
-                        ) as mdtf_ds:
-                            mdtf_ds.to_netcdf(mdtf_file)
-                        # End with
+                        try:
+                            with xr.open_mfdataset(
+                                adf_file_list, decode_times=False, combine="by_coords"
+                            ) as mdtf_ds:
+                                mdtf_ds.to_netcdf(mdtf_file)
+                            # End with
+                            continue
+                        except (ValueError, OSError) as err:
+                            if verbose > 0:
+                                print(
+                                    f"""WARNING: could not combine {adf_file_list}
+                                     into one file ({err}). Continuing with the first."""
+                                )
+                        # End try
                     # End if
+
+                    if verbose > 1:
+                        print(f"copying {adf_file} to {mdtf_file}")
+                    shutil.copyfile(adf_file, mdtf_file)
                 # end for hist_str
             # end for var
         # end for case

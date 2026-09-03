@@ -62,32 +62,6 @@ def find_ts_files(ts_loc, pattern, recursive=True):
     return sorted(ts_loc.rglob(pattern))
 
 
-def _ts_file_years(fil):
-    """
-    Read the (start, end) years out of a time series file name.
-
-    Parameters
-    ----------
-    fil : str or Path
-        path to a time series file
-
-    Returns
-    -------
-    tuple of int or None
-        (start year, end year), or ``None`` if the name could not be read.
-    """
-    spans = _ts_file_spans([fil])
-    if not spans:
-        return None
-    #End if
-    start, end = spans[0]
-    #Dates are YYYY, YYYYMM or YYYYMMDD, so the year is always the first four:
-    if len(start) < 4:
-        return None
-    #End if
-    return int(start[:4]), int(end[:4])
-
-
 def select_ts_files(fils, syr, eyr):
     """
     Narrow a set of time series files to those needed for a year range.
@@ -277,14 +251,12 @@ def _ts_file_spans(fils):
         name could not be parsed or the dates do not all use the same width.
         Callers treat ``None`` as "make no promises about these files".
     """
-    spans = []
-    for start, end, _ in _ts_file_span_pairs(fils) or [(None, None, None)]:
-        if start is None:
-            #Unrecognized name, so make no promises about it:
-            return None
-        #End if
-        spans.append((start, end))
-    #End for
+    pairs = _ts_file_span_pairs(fils)
+    if not pairs:
+        #Unrecognized names, so make no promises about them:
+        return None
+    #End if
+    spans = [(start, end) for start, end, _ in pairs]
 
     return sorted(spans)
 
