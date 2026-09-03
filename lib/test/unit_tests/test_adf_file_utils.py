@@ -267,17 +267,16 @@ class AdfFileUtilsTestRoutine(unittest.TestCase):
     def test_select_nested_sets_short_range(self):
 
         """
-        Asking for only the first 20 years of the same directory must also
-        give a single self-consistent set.
+        Asking for only the first 20 years of the same directory must give a
+        single self-consistent set, and the smaller of the two: reading the
+        40-year file to average 20 years of it is twice the work for the same
+        answer.
         """
 
         short = "case.cam.h0a.T.000101-002012.nc"
         long = "case.cam.h0a.T.000101-004012.nc"
 
-        chosen = select_ts_files([short, long], 1, 20)
-
-        self.assertEqual(len(chosen), 1)
-        self.assertFalse(ts_files_overlap(chosen))
+        self.assertEqual(select_ts_files([short, long], 1, 20), [short])
 
     def test_select_sub_window_of_one_file(self):
 
@@ -289,10 +288,7 @@ class AdfFileUtilsTestRoutine(unittest.TestCase):
         short = "case.cam.h0a.T.000101-002012.nc"
         long = "case.cam.h0a.T.000101-004012.nc"
 
-        chosen = select_ts_files([short, long], 5, 15)
-
-        self.assertEqual(len(chosen), 1)
-        self.assertFalse(ts_files_overlap(chosen))
+        self.assertEqual(select_ts_files([short, long], 5, 15), [short])
 
     def test_select_keeps_consecutive_chunks(self):
 

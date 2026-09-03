@@ -101,10 +101,12 @@ def select_ts_files(fils, syr, eyr):
     them.
 
     Files are picked greedily: at each step take the file that starts at or
-    before the first year not yet covered and reaches furthest, so a variable
-    split into consecutive chunks (what GenTS produces with 'slice_years')
-    still gets all of its chunks, while a duplicate set is passed over in
-    favor of whichever single set covers the request.
+    before the first year not yet covered, preferring the smallest one that
+    holds all of the years still needed and otherwise the one that reaches
+    furthest.  A variable split into consecutive chunks (what GenTS produces
+    with 'slice_years') therefore still gets all of its chunks, while a
+    duplicate set is passed over in favor of the smallest single set that
+    covers the request.
 
     Parameters
     ----------
@@ -154,7 +156,16 @@ def select_ts_files(fils, syr, eyr):
             #problem rather than a choice to be made here:
             return fils
         #End if
-        start, end, fil = max(reaching, key=lambda c: c[1])
+        #Prefer a file that holds all of what is left to cover, and the
+        #smallest such, so that a 40-year file is not read to build a 20-year
+        #climatology.  Failing that take the one reaching furthest, which is
+        #what lets consecutive chunks be picked up in turn:
+        covering = [c for c in reaching if c[1] >= eyr]
+        if covering:
+            _, end, fil = min(covering, key=lambda c: c[1] - c[0])
+        else:
+            _, end, fil = max(reaching, key=lambda c: c[1])
+        #End if
         chosen.append(fil)
         needed = end + 1
     #End while
