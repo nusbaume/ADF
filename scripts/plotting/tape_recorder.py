@@ -181,6 +181,9 @@ def tape_recorder(adfobj):
         ts_loc = Path(case_ts_locs[idx])
         hist_str = hist_strs[idx]
         fils = sorted(ts_loc.glob(f'*{hist_str}.{var}.*.nc'))
+        #A directory can hold more than one set of files for one variable, so
+        #keep the set needed for this case's years:
+        fils = utils.select_ts_files(fils, start_years[idx], end_years[idx])
         dat = adfobj.data.load_timeseries_dataset(fils)
 
         if not dat:

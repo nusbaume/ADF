@@ -95,6 +95,7 @@ for root, dirs, files in os.walk(_DIAG_SCRIPTS_PATH):
 # +++++++++++++++++++++++++++++
 
 # Finally, import needed ADF modules:
+from adf_file_utils import select_ts_files, ts_files_need_combining
 from adf_web import AdfWeb
 from adf_dataset import AdfData
 from adf_derive import check_derive, derive_variable
@@ -734,7 +735,8 @@ class AdfDiag(AdfWeb):
                 if constit_dict:
                     for der_var, constit_list in constit_dict.items():
                         derive_variable(self, case_name, der_var, res,
-                                        ts_dir, constit_list, hist_str=hist_str)
+                                        ts_dir, constit_list, hist_str=hist_str,
+                                        syr=start_year, eyr=end_year)
             # End for hist_str
         # End cases loop
 
@@ -1259,15 +1261,37 @@ class AdfDiag(AdfWeb):
                     )  # * to match timestamp: could be multiples
                     adf_file_list = glob.glob(adf_file_str)
 
+                    #Keep only the files needed for this case's years, so that
+                    #a directory holding more than one set for the same
+                    #variable does not come down to a guess:
+                    adf_file_list = select_ts_files(
+                        adf_file_list,
+                        self.climo_yrs["syears"][case_idx],
+                        self.climo_yrs["eyears"][case_idx])
+
+                    # Consecutive files, which is what GenTS writes when
+                    # 'gents_slice_years' is set, are combined below, since
+                    # MDTF wants one file per variable.  Files that overlap
+                    # cannot be combined -- select_ts_files hands back a set it
+                    # could not resolve -- so those keep the older behavior of
+                    # copying the first and saying so.
+                    combine_files = ts_files_need_combining(adf_file_list)
+
                     if len(adf_file_list) == 1:
                         if verbose > 1:
                             print(f"Copying ts file: {adf_file_list} to MDTF dir")
+                    elif combine_files:
+                        if verbose > 1:
+                            print(
+                                f"Combining {len(adf_file_list)} ts files into "
+                                "one file for the MDTF dir"
+                            )
                     elif len(adf_file_list) > 1:
                         if verbose > 0:
                             print(
-                                f"""WARNING: found multiple timeseries files {adf_file_list}.
-                                 Continuing with best guess; suggest cleaning up multiple 
-                                    dates in ts dir"""
+                                f"""WARNING: found multiple timeseries files {adf_file_list}
+                                 covering overlapping periods. Continuing with the first;
+                                    suggest cleaning up multiple dates in ts dir"""
                             )
                     else:
                         if verbose > 1:
@@ -1276,6 +1300,7 @@ class AdfDiag(AdfWeb):
                                      found in {adf_file_str}. Skipping"""
                             )
                         continue  # skip this case/hist_str/var file
+                    adf_file_list = sorted(adf_file_list)
                     adf_file = adf_file_list[0]
 
                     # If freq is not set, it means we just started this hist_str. 
@@ -1342,6 +1367,29 @@ class AdfDiag(AdfWeb):
                                 f"\t   INFO: not clobbering existing mdtf file {mdtf_file_list}"
                             )
                         continue  # simply skip file copy for this variable:
+
+                    if combine_files:
+                        # Write the consecutive files out as the single file
+                        # MDTF expects instead of copying just the first.  If
+                        # combining fails for any reason, copying one file is
+                        # still better than ending the whole ADF run:
+                        if verbose > 1:
+                            print(f"writing {adf_file_list} to {mdtf_file}")
+                        try:
+                            with xr.open_mfdataset(
+                                adf_file_list, decode_times=False, combine="by_coords"
+                            ) as mdtf_ds:
+                                mdtf_ds.to_netcdf(mdtf_file)
+                            # End with
+                            continue
+                        except (ValueError, OSError) as err:
+                            if verbose > 0:
+                                print(
+                                    f"""WARNING: could not combine {adf_file_list}
+                                     into one file ({err}). Continuing with the first."""
+                                )
+                        # End try
+                    # End if
 
                     if verbose > 1:
                         print(f"copying {adf_file} to {mdtf_file}")

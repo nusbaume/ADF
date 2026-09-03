@@ -48,6 +48,16 @@ import adf_utils as utils
 from adf_config import AdfConfig
 from adf_base   import AdfError
 
+
+def _warn_on_long_climo_range(syr, eyr):
+    """Tell the user when the year range worked out from the files is large."""
+    if eyr-syr >= 100:
+        msg = f"WARNING: the found climo year range is large: {eyr-syr} years, "
+        msg += "this may take a long time!"
+        print(msg)
+    #End if
+
+
 #+++++++++++++++++++
 #Define Obs class
 #+++++++++++++++++++
@@ -868,6 +878,14 @@ class AdfInfo(AdfConfig):
         ------
           - start year
           - end year
+
+        Notes
+        -----
+        The period is read from the file names when they carry it, so a
+        directory holding more than one set of files for the same variable
+        (years 1-20 alongside years 1-40) reports the whole available span
+        instead of failing to open the files together.  Names whose dates
+        cannot be read fall back to reading the period from the data.
         """
 
         #Grab variable list
@@ -947,7 +965,21 @@ class AdfInfo(AdfConfig):
             raise AdfError(errmsg)
         #End if
 
-        #Read in file(s)
+        #The file names carry the period they hold, so use those rather than
+        #opening the files: overlapping sets (years 1-20 alongside years 1-40,
+        #left behind when a run is extended and the time series are remade)
+        #cannot be opened together, and this runs during ADF setup, so failing
+        #here takes down the whole run before any diagnostic starts.
+        span = utils.ts_file_span(ts_files)
+        if span and len(span[0]) >= 4:
+            syr = int(span[0][:4])
+            eyr = int(span[1][:4])
+            _warn_on_long_climo_range(syr, eyr)
+            return syr, eyr
+        #End if
+
+        #Read in file(s) -- names whose dates could not be read, so the period
+        #has to come from the data itself:
         if len(ts_files) == 1:
             cam_ts_data = xr.open_dataset(ts_files[0], decode_times=True)
         else:
@@ -974,10 +1006,7 @@ class AdfInfo(AdfConfig):
         syr = int(cam_ts_data.time[0].dt.year.values)
         eyr = int(cam_ts_data.time[-1].dt.year.values)
 
-        if eyr-syr >= 100:
-            msg = f"WARNING: the found climo year range is large: {eyr-syr} years, "
-            msg += "this may take a long time!"
-            print(msg)
+        _warn_on_long_climo_range(syr, eyr)
 
         return syr, eyr
 

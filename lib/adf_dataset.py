@@ -132,11 +132,36 @@ class AdfData:
     # Time series files
     #------------------
     # Test case(s)
+    def _select_ts_files(self, fils, syr, eyr, field):
+        """Narrow time series files to the years wanted, saying so in the log.
+
+        Files are only narrowed when they could not be opened together, so a
+        message here means the directory held more than one set for `field`.
+        """
+        chosen = utils.select_ts_files(fils, syr, eyr)
+        if len(chosen) != len(fils):
+            msg = f"\t    INFO: '{field}' has {len(fils)} time series files that "
+            msg += "cannot be used together, so the "
+            msg += f"{len(chosen)} needed for years {syr}-{eyr} were used."
+            #Say it on screen as well as in the log: the numbers a user sees
+            #change when this happens, and that should not be silent.
+            print(msg)
+            self.adf.debug_log(
+                msg + "  Files used: "
+                + ", ".join(str(Path(f).name) for f in chosen))
+        #End if
+        return chosen
+
     def get_timeseries_file(self, case, field, hist_str=None):
         """Return list of test time series files.
 
         If hist_str is given, restrict the search to that history stream
         (time series files are named {case}.{hist_str}.{field}.*.nc).
+
+        The files are narrowed to those needed for the case's climatology
+        years, so that a directory holding more than one set for the same
+        variable (years 1-20 alongside years 1-40, say) does not produce a
+        combined time axis with duplicate times.
         """
         # list of paths (could be multiple cases)
         ts_locs = self.adf.get_cam_info("cam_ts_loc", required=True)
@@ -146,13 +171,17 @@ class AdfData:
             ts_filenames = f'{case}.{hist_str}.{field}.*nc'
         else:
             ts_filenames = f'{case}.*.{field}.*nc'
-        return utils.find_ts_files(ts_loc, ts_filenames)
+        fils = utils.find_ts_files(ts_loc, ts_filenames)
+        climo_yrs = self.adf.climo_yrs
+        return self._select_ts_files(fils, climo_yrs["syears"][caseindex],
+                                     climo_yrs["eyears"][caseindex], field)
 
     # Reference case (baseline/obs)
     def get_ref_timeseries_file(self, field, hist_str=None):
         """Return list of reference time series files.
 
         If hist_str is given, restrict the search to that history stream.
+        Narrowed to the baseline's climatology years, as for the test cases.
         """
         if self.adf.compare_obs:
             warnings.warn("\t    WARNING: ADF does not currently expect "
@@ -163,7 +192,10 @@ class AdfData:
             ts_filenames = f'{self.ref_case_label}.{hist_str}.{field}.*nc'
         else:
             ts_filenames = f'{self.ref_case_label}.*.{field}.*nc'
-        return utils.find_ts_files(ts_loc, ts_filenames)
+        fils = utils.find_ts_files(ts_loc, ts_filenames)
+        climo_yrs = self.adf.climo_yrs
+        return self._select_ts_files(fils, climo_yrs["syear_baseline"],
+                                     climo_yrs["eyear_baseline"], field)
 
 
     def load_timeseries_dataset(self, fils):
