@@ -23,7 +23,8 @@ sys.path.append(_ADF_LIB_DIR)
 
 #adf_file_utils imports nothing but pathlib, so these run in CI, where only
 #PyYAML and pytest are installed:
-from adf_file_utils import find_ts_files, ts_files_overlap, ts_file_span
+from adf_file_utils import (find_ts_files, select_ts_files, ts_files_overlap,
+                            ts_file_span)
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #Main adf_file_utils testing routine, used when script is run directly
@@ -243,6 +244,142 @@ class AdfFileUtilsTestRoutine(unittest.TestCase):
 
         self.assertIsNone(ts_file_span(["case.cam.h0a.FSNT.somethingelse.nc"]))
         self.assertIsNone(ts_file_span([]))
+
+
+    #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    #select_ts_files: choosing between sets that cover the same years
+    #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    def test_select_nested_sets_full_range(self):
+
+        """
+        Years 1-20 alongside years 1-40, which is what a re-post-processed run
+        leaves behind, must resolve to the one set covering the years asked
+        for.  These cannot be opened together, so choosing is the whole point.
+        """
+
+        short = "case.cam.h0a.T.000101-002012.nc"
+        long = "case.cam.h0a.T.000101-004012.nc"
+
+        self.assertEqual(select_ts_files([short, long], 1, 40), [long])
+        self.assertFalse(ts_files_overlap(select_ts_files([short, long], 1, 40)))
+
+    def test_select_nested_sets_short_range(self):
+
+        """
+        Asking for only the first 20 years of the same directory must also
+        give a single self-consistent set.
+        """
+
+        short = "case.cam.h0a.T.000101-002012.nc"
+        long = "case.cam.h0a.T.000101-004012.nc"
+
+        chosen = select_ts_files([short, long], 1, 20)
+
+        self.assertEqual(len(chosen), 1)
+        self.assertFalse(ts_files_overlap(chosen))
+
+    def test_select_sub_window_of_one_file(self):
+
+        """
+        A range sitting inside a file is the ordinary case for ADF (climo over
+        part of a time series), so it must not be treated as "not covered".
+        """
+
+        short = "case.cam.h0a.T.000101-002012.nc"
+        long = "case.cam.h0a.T.000101-004012.nc"
+
+        chosen = select_ts_files([short, long], 5, 15)
+
+        self.assertEqual(len(chosen), 1)
+        self.assertFalse(ts_files_overlap(chosen))
+
+    def test_select_keeps_consecutive_chunks(self):
+
+        """
+        A variable split into consecutive chunks -- what GenTS writes with
+        'slice_years' -- has to keep every chunk the range needs, and only
+        those.
+        """
+
+        fils = ["case.cam.h0a.T.000101-001012.nc",
+                "case.cam.h0a.T.001101-002012.nc",
+                "case.cam.h0a.T.002101-003012.nc"]
+
+        self.assertEqual(select_ts_files(fils, 1, 20), fils[:2])
+        self.assertEqual(select_ts_files(fils, 15, 25), fils[1:])
+
+    def test_select_prefers_whole_set_over_chunks(self):
+
+        """
+        A chunked set and a single whole-period set in the same directory
+        overlap, so exactly one of them must be chosen.
+        """
+
+        chunks = ["case.cam.h0a.T.000101-001012.nc",
+                  "case.cam.h0a.T.001101-002012.nc"]
+        whole = "case.cam.h0a.T.000101-002012.nc"
+
+        chosen = select_ts_files(chunks + [whole], 1, 20)
+
+        self.assertEqual(chosen, [whole])
+
+    def test_select_drops_files_outside_range(self):
+
+        """
+        Files that hold none of the requested years are of no use and must not
+        be handed on.
+        """
+
+        fils = ["case.cam.h0a.T.000101-001012.nc",
+                "case.cam.h0a.T.001101-002012.nc"]
+
+        self.assertEqual(select_ts_files(fils, 11, 20), fils[1:])
+
+    def test_select_passes_through_when_undecidable(self):
+
+        """
+        With no years given, unreadable names, or a gap in the requested
+        range, there is nothing to choose, so the caller must be left with
+        exactly the behavior it had before.
+        """
+
+        fils = ["case.cam.h0a.T.000101-001012.nc",
+                "case.cam.h0a.T.002101-003012.nc"]
+
+        #No years given:
+        self.assertEqual(select_ts_files(fils, None, None), fils)
+        self.assertEqual(select_ts_files(fils, "", ""), fils)
+        #Gap between the two files:
+        self.assertEqual(select_ts_files(fils, 1, 30), fils)
+        #Unreadable names:
+        unreadable = ["case.cam.h0a.T.first.nc", "case.cam.h0a.T.second.nc"]
+        self.assertEqual(select_ts_files(unreadable, 1, 20), unreadable)
+        #Nothing to choose between:
+        self.assertEqual(select_ts_files(fils[:1], 1, 10), fils[:1])
+
+    def test_select_accepts_paths_and_year_strings(self):
+
+        """
+        Callers pass Path objects, and years arrive from the config file as
+        either integers or strings.
+        """
+
+        short = Path("/ts/case.cam.h0a.T.000101-002012.nc")
+        long = Path("/ts/case.cam.h0a.T.000101-004012.nc")
+
+        self.assertEqual(select_ts_files([short, long], "1", "40"), [long])
+
+    def test_select_annual_dates(self):
+
+        """
+        Time series dates can be YYYY rather than YYYYMM.
+        """
+
+        short = "case.cam.h0a.T.0001-0020.nc"
+        long = "case.cam.h0a.T.0001-0040.nc"
+
+        self.assertEqual(select_ts_files([short, long], 1, 40), [long])
 
 #++++++++++++++++++
 

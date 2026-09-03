@@ -95,6 +95,7 @@ for root, dirs, files in os.walk(_DIAG_SCRIPTS_PATH):
 # +++++++++++++++++++++++++++++
 
 # Finally, import needed ADF modules:
+from adf_file_utils import select_ts_files
 from adf_web import AdfWeb
 from adf_dataset import AdfData
 from adf_derive import check_derive, derive_variable
@@ -734,7 +735,8 @@ class AdfDiag(AdfWeb):
                 if constit_dict:
                     for der_var, constit_list in constit_dict.items():
                         derive_variable(self, case_name, der_var, res,
-                                        ts_dir, constit_list, hist_str=hist_str)
+                                        ts_dir, constit_list, hist_str=hist_str,
+                                        syr=start_year, eyr=end_year)
             # End for hist_str
         # End cases loop
 
@@ -1258,6 +1260,14 @@ class AdfDiag(AdfWeb):
                         + ".".join([case_name, hist_str, var, "*"])
                     )  # * to match timestamp: could be multiples
                     adf_file_list = glob.glob(adf_file_str)
+
+                    #Keep only the files needed for this case's years, so that
+                    #a directory holding more than one set for the same
+                    #variable does not come down to a guess:
+                    adf_file_list = select_ts_files(
+                        adf_file_list,
+                        self.climo_yrs["syears"][case_idx],
+                        self.climo_yrs["eyears"][case_idx])
 
                     if len(adf_file_list) == 1:
                         if verbose > 1:

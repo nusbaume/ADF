@@ -10,6 +10,8 @@ Functions
 ---------
 find_ts_files(ts_loc, pattern, recursive=True)
     Locate time series files matching a glob pattern under a directory.
+select_ts_files(fils, syr, eyr)
+    Narrow a set of time series files to those needed for a year range.
 ts_files_overlap(fils)
     Report whether a set of time series files cover overlapping periods.
 ts_file_span(fils)
@@ -58,6 +60,106 @@ def find_ts_files(ts_loc, pattern, recursive=True):
         return found
     #End if
     return sorted(ts_loc.rglob(pattern))
+
+
+def _ts_file_years(fil):
+    """
+    Read the (start, end) years out of a time series file name.
+
+    Parameters
+    ----------
+    fil : str or Path
+        path to a time series file
+
+    Returns
+    -------
+    tuple of int or None
+        (start year, end year), or ``None`` if the name could not be read.
+    """
+    spans = _ts_file_spans([fil])
+    if not spans:
+        return None
+    #End if
+    start, end = spans[0]
+    #Dates are YYYY, YYYYMM or YYYYMMDD, so the year is always the first four:
+    if len(start) < 4:
+        return None
+    #End if
+    return int(start[:4]), int(end[:4])
+
+
+def select_ts_files(fils, syr, eyr):
+    """
+    Narrow a set of time series files to those needed to cover a year range.
+
+    A time series directory can hold more than one set of files for the same
+    variable: a run post-processed over years 1-20 and then, once it had been
+    extended, over years 1-40 leaves both sets behind.  Those sets cannot be
+    opened together -- the combined time axis would have duplicate times -- but
+    either one alone is fine as long as it covers the years being plotted, so
+    the configured ``start_year``/``end_year`` are enough to choose between
+    them.
+
+    Files are picked greedily: at each step take the file that starts at or
+    before the first year not yet covered and reaches furthest, so a variable
+    split into consecutive chunks (what GenTS produces with 'slice_years')
+    still gets all of its chunks, while a duplicate set is passed over in
+    favor of whichever single set covers the request.
+
+    Parameters
+    ----------
+    fils : list
+        strings or paths to time series files
+    syr : int or str or None
+        first year needed
+    eyr : int or str or None
+        last year needed
+
+    Returns
+    -------
+    list
+        The files needed for [syr, eyr], in chronological order.  The input
+        list is returned unchanged when there is nothing to choose between
+        (fewer than two files), when no years were given, when a name's dates
+        could not be read, or when the files leave a gap in the requested
+        range -- in each of those cases this function has nothing to add and
+        the caller is left with the behavior it had before.
+    """
+    fils = list(fils)
+    if len(fils) < 2 or syr is None or eyr is None or syr == "" or eyr == "":
+        return fils
+    #End if
+    syr, eyr = int(syr), int(eyr)
+
+    #Files that overlap the requested range at all:
+    candidates = []
+    for fil in fils:
+        years = _ts_file_years(fil)
+        if years is None:
+            #Unrecognized name, so make no promises about the set:
+            return fils
+        #End if
+        start, end = years
+        if start <= eyr and end >= syr:
+            candidates.append((start, end, fil))
+        #End if
+    #End for
+
+    chosen = []
+    needed = syr
+    while needed <= eyr:
+        reaching = [c for c in candidates if c[0] <= needed <= c[1]]
+        if not reaching:
+            #The requested years are not covered, which is a configuration
+            #problem rather than a choice to be made here:
+            return fils
+        #End if
+        start, end, fil = max(reaching, key=lambda c: c[1])
+        chosen.append(fil)
+        needed = end + 1
+    #End while
+
+    return chosen
 
 
 def _ts_file_spans(fils):

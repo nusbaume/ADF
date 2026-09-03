@@ -206,6 +206,12 @@ def amwg_table(adf):
             ts_filenames = f'{case_name}.*.{var}.*nc'
             ts_files = utils.find_ts_files(input_location, ts_filenames)
 
+            #Keep only the files needed for this case's years, so that a
+            #directory holding more than one set for the same variable
+            #(years 1-20 alongside years 1-40, say) is not a problem:
+            ts_files = utils.select_ts_files(ts_files, syear_cases[case_idx],
+                                             eyear_cases[case_idx])
+
             # If no files exist, try to move to next variable. --> Means we can not proceed with this variable, and it'll be problematic later.
             if not ts_files:
                 errmsg = f"\t    WARNING: Time series files for variable '{var}' not found.  Script will continue to next variable."
