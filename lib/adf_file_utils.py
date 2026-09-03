@@ -56,7 +56,7 @@ def find_ts_files(ts_loc, pattern, recursive=True):
     found = sorted(ts_loc.glob(pattern))
     if found or not recursive:
         return found
-    #End if
+    # End if
     return sorted(ts_loc.rglob(pattern))
 
 
@@ -78,21 +78,21 @@ def _ts_file_spans(fils):
     """
     spans = []
     for fil in fils:
-        #Last dot-separated token of the stem -- second-to-last of the file
-        #name -- e.g. "001001-001112" in "case.cam.h0a.T.001001-001112.nc":
+        # Last dot-separated token of the stem -- second-to-last of the file
+        # name -- e.g. "001001-001112" in "case.cam.h0a.T.001001-001112.nc":
         date_str = Path(fil).stem.split(".")[-1]
         start, sep, end = date_str.partition("-")
         if not sep or not start.isdigit() or not end.isdigit():
-            #Unrecognized name, so make no promises about it:
+            # Unrecognized name, so make no promises about it:
             return None
         spans.append((start, end))
-    #End for
+    # End for
 
-    #Zero-padded dates of equal width sort chronologically as strings, but
-    #mixed widths (e.g. YYYY next to YYYYMM) would not, so bail out on those:
+    # Zero-padded dates of equal width sort chronologically as strings, but
+    # mixed widths (e.g. YYYY next to YYYYMM) would not, so bail out on those:
     if len({len(s) for span in spans for s in span}) != 1:
         return None
-    #End if
+    # End if
 
     return sorted(spans)
 
@@ -124,17 +124,17 @@ def ts_files_overlap(fils):
     """
     if len(fils) < 2:
         return False
-    #End if
+    # End if
 
     spans = _ts_file_spans(fils)
     if spans is None:
         return True
-    #End if
+    # End if
 
     for (_, prev_end), (next_start, _) in zip(spans, spans[1:]):
         if next_start <= prev_end:
             return True
-    #End for
+    # End for
 
     return False
 
@@ -162,8 +162,8 @@ def ts_file_span(fils):
     spans = _ts_file_spans(fils)
     if not spans:
         return None
-    #End if
+    # End if
 
-    #Sorted by start, so the earliest start leads; take the latest end
-    #explicitly rather than assuming the last entry carries it:
+    # Sorted by start, so the earliest start leads; take the latest end
+    # explicitly rather than assuming the last entry carries it:
     return spans[0][0], max(end for _, end in spans)
