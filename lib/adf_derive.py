@@ -155,8 +155,8 @@ def check_derive(
 
 ########
 
-def _find_constit(ts_dir, case_name, constit, hist_str=None, *,
-                  syr=None, eyr=None):
+
+def _find_constit(ts_dir, case_name, constit, hist_str=None, *, syr=None, eyr=None):
     """
     Locate a constituent's time series file(s) for one case and stream.
 
@@ -199,14 +199,24 @@ def _find_constit(ts_dir, case_name, constit, hist_str=None, *,
         found = utils.find_ts_files(ts_dir, pattern)
         if found:
             return utils.select_ts_files(found, syr, eyr)
-        #End if
-    #End for
+        # End if
+    # End for
     return []
 
 
-def derive_variable(self, case_name, var, res=None, ts_dir=None,
-                         constit_list=None, overwrite=None, hist_str=None, *,
-                         syr=None, eyr=None):
+def derive_variable(
+    self,
+    case_name,
+    var,
+    res=None,
+    ts_dir=None,
+    constit_list=None,
+    overwrite=None,
+    hist_str=None,
+    *,
+    syr=None,
+    eyr=None,
+):
     """
     Derive variables acccording to steps given here.  Since derivations will depend on the
     variable, each variable to derive will need its own set of steps below.
@@ -248,8 +258,7 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
     constit_matches = {}
     for constit in constit_list:
         # Check if the constituent file(s) are present, if so add them to the dict
-        matches = _find_constit(ts_dir, case_name, constit, hist_str,
-                                syr=syr, eyr=eyr)
+        matches = _find_constit(ts_dir, case_name, constit, hist_str, syr=syr, eyr=eyr)
         if not matches:
             continue
         if utils.ts_files_overlap(matches):
@@ -362,8 +371,9 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
             # the whole list: taking [0] would multiply a full-span variable by
             # a single chunk, which time-axis alignment turns silently into NaN.
             # Check if PMID is in file:
-            ds_pmid = self.data.load_dataset(_find_constit(ts_dir, case_name, "PMID", hist_str,
-                                                          syr=syr, eyr=eyr))
+            ds_pmid = self.data.load_dataset(
+                _find_constit(ts_dir, case_name, "PMID", hist_str, syr=syr, eyr=eyr)
+            )
             if not ds_pmid:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'PMID' is in the CAM "
@@ -375,8 +385,9 @@ def derive_variable(self, case_name, var, res=None, ts_dir=None,
                 return
 
             # Check if T is in file:
-            ds_t = self.data.load_dataset(_find_constit(ts_dir, case_name, "T", hist_str,
-                                                       syr=syr, eyr=eyr))
+            ds_t = self.data.load_dataset(
+                _find_constit(ts_dir, case_name, "T", hist_str, syr=syr, eyr=eyr)
+            )
             if not ds_t:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'T' is in the CAM "

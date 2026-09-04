@@ -248,7 +248,9 @@ def load_dataset(fils, use_time_bounds=False):
         ds = use_time_bounds_midpoint(ds)
     # End if
     return ds
-#End def
+
+
+# End def
 
 
 # End def
@@ -1176,4 +1178,4 @@ def zonal_mean_xr(fld):
 
 
 #####################
-#END HELPER FUNCTIONS
+# END HELPER FUNCTIONS

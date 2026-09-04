@@ -790,9 +790,17 @@ class AdfDiag(AdfWeb):
                 # Finally, run through the derived variables if applicable
                 if constit_dict:
                     for der_var, constit_list in constit_dict.items():
-                        derive_variable(self, case_name, der_var, res,
-                                        ts_dir, constit_list, hist_str=hist_str,
-                                        syr=start_year, eyr=end_year)
+                        derive_variable(
+                            self,
+                            case_name,
+                            der_var,
+                            res,
+                            ts_dir,
+                            constit_list,
+                            hist_str=hist_str,
+                            syr=start_year,
+                            eyr=end_year,
+                        )
             # End for hist_str
         # End cases loop
 
@@ -1316,13 +1324,14 @@ class AdfDiag(AdfWeb):
                     )  # * to match timestamp: could be multiples
                     adf_file_list = glob.glob(adf_file_str)
 
-                    #Keep only the files needed for this case's years, so that
-                    #a directory holding more than one set for the same
-                    #variable does not come down to a guess:
+                    # Keep only the files needed for this case's years, so that
+                    # a directory holding more than one set for the same
+                    # variable does not come down to a guess:
                     adf_file_list = select_ts_files(
                         adf_file_list,
                         self.climo_yrs["syears"][case_idx],
-                        self.climo_yrs["eyears"][case_idx])
+                        self.climo_yrs["eyears"][case_idx],
+                    )
 
                     # Consecutive files, which is what GenTS writes when
                     # 'gents_slice_years' is set, are combined below, since

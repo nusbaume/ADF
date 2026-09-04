@@ -327,6 +327,7 @@ def meridional_plot_preslon(ax, lon, lev, data, **kwargs):
     ax.set_ylim([np.max(lev), np.min(lev)])
     return img, ax
 
+
 def colormap_object(cmap):
     """
     Return a matplotlib Colormap, given either one or the name of one.
@@ -398,9 +399,9 @@ def prep_contour_plot(adata, bdata, diffdata, pctdata, **kwargs):
         cmap1 = "coolwarm"
     # End if
 
-    if 'contour_levels' in kwargs:
-        levels1 = kwargs['contour_levels']
-        if ('non_linear' in kwargs) and (kwargs['non_linear']):
+    if "contour_levels" in kwargs:
+        levels1 = kwargs["contour_levels"]
+        if ("non_linear" in kwargs) and (kwargs["non_linear"]):
             cmap_obj = colormap_object(cmap1)
             norm1 = mpl.colors.BoundaryNorm(levels1, cmap_obj.N)
         else:
@@ -410,15 +411,15 @@ def prep_contour_plot(adata, bdata, diffdata, pctdata, **kwargs):
             len(kwargs["contour_levels_range"]) == 3
         ), "contour_levels_range must have exactly three entries: min, max, step"
 
-        levels1 = np.arange(*kwargs['contour_levels_range'])
-        if ('non_linear' in kwargs) and (kwargs['non_linear']):
+        levels1 = np.arange(*kwargs["contour_levels_range"])
+        if ("non_linear" in kwargs) and (kwargs["non_linear"]):
             cmap_obj = colormap_object(cmap1)
             norm1 = mpl.colors.BoundaryNorm(levels1, cmap_obj.N)
         else:
             norm1 = mpl.colors.Normalize(vmin=min(levels1), vmax=max(levels1))
     else:
         levels1 = np.linspace(minval, maxval, 12)
-        if ('non_linear' in kwargs) and (kwargs['non_linear']):
+        if ("non_linear" in kwargs) and (kwargs["non_linear"]):
             cmap_obj = colormap_object(cmap1)
             norm1 = mpl.colors.BoundaryNorm(levels1, cmap_obj.N)
         else:
@@ -554,4 +555,4 @@ def prep_contour_plot(adata, bdata, diffdata, pctdata, **kwargs):
 
 
 #####################
-#END HELPER FUNCTIONS
+# END HELPER FUNCTIONS

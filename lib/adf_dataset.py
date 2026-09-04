@@ -152,13 +152,13 @@ class AdfData:
             msg = f"\t    INFO: '{field}' has {len(fils)} time series files that "
             msg += "cannot be used together, so the "
             msg += f"{len(chosen)} needed for years {syr}-{eyr} were used."
-            #Say it on screen as well as in the log: the numbers a user sees
-            #change when this happens, and that should not be silent.
+            # Say it on screen as well as in the log: the numbers a user sees
+            # change when this happens, and that should not be silent.
             print(msg)
             self.adf.debug_log(
-                msg + "  Files used: "
-                + ", ".join(str(Path(f).name) for f in chosen))
-        #End if
+                msg + "  Files used: " + ", ".join(str(Path(f).name) for f in chosen)
+            )
+        # End if
         return chosen
 
     def get_timeseries_file(self, case, field, hist_str=None):
@@ -179,11 +179,12 @@ class AdfData:
         if hist_str:
             ts_filenames = f"{case}.{hist_str}.{field}.*nc"
         else:
-            ts_filenames = f'{case}.*.{field}.*nc'
+            ts_filenames = f"{case}.*.{field}.*nc"
         fils = utils.find_ts_files(ts_loc, ts_filenames)
         climo_yrs = self.adf.climo_yrs
-        return self._select_ts_files(fils, climo_yrs["syears"][caseindex],
-                                     climo_yrs["eyears"][caseindex], field)
+        return self._select_ts_files(
+            fils, climo_yrs["syears"][caseindex], climo_yrs["eyears"][caseindex], field
+        )
 
     # Reference case (baseline/obs)
     def get_ref_timeseries_file(self, field, hist_str=None):
@@ -202,11 +203,12 @@ class AdfData:
         if hist_str:
             ts_filenames = f"{self.ref_case_label}.{hist_str}.{field}.*nc"
         else:
-            ts_filenames = f'{self.ref_case_label}.*.{field}.*nc'
+            ts_filenames = f"{self.ref_case_label}.*.{field}.*nc"
         fils = utils.find_ts_files(ts_loc, ts_filenames)
         climo_yrs = self.adf.climo_yrs
-        return self._select_ts_files(fils, climo_yrs["syear_baseline"],
-                                     climo_yrs["eyear_baseline"], field)
+        return self._select_ts_files(
+            fils, climo_yrs["syear_baseline"], climo_yrs["eyear_baseline"], field
+        )
 
     def load_timeseries_dataset(self, fils):
         """Return DataSet from time series file(s) and assign time to midpoint of interval"""
@@ -291,8 +293,7 @@ class AdfData:
             scale_factor=scale_factor,
         )
 
-
-    #------------------
+    # ------------------
 
     # ------------------
 
@@ -574,7 +575,7 @@ class AdfData:
 
     # ---------------------------
     # DataSet and DataArray load
-    #---------------------------
+    # ---------------------------
     def load_dataset(self, fils, use_time_bounds=False):
         """Return xarray DataSet from file(s).
 

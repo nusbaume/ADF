@@ -52,16 +52,16 @@ from adf_base import AdfError
 
 def _warn_on_long_climo_range(syr, eyr):
     """Tell the user when the year range worked out from the files is large."""
-    if eyr-syr >= 100:
+    if eyr - syr >= 100:
         msg = f"WARNING: the found climo year range is large: {eyr-syr} years, "
         msg += "this may take a long time!"
         print(msg)
-    #End if
+    # End if
 
 
-#+++++++++++++++++++
-#Define Obs class
-#+++++++++++++++++++
+# +++++++++++++++++++
+# Define Obs class
+# +++++++++++++++++++
 class AdfInfo(AdfConfig):
     """
     Information/Parameter class, which initializes
@@ -222,8 +222,8 @@ class AdfInfo(AdfConfig):
                 self.__base_hist_str = baseline_hist_str
             # End if
 
-            #Check if any time series files are pre-made
-            baseline_ts_done   = self.get_baseline_info("cam_ts_done")
+            # Check if any time series files are pre-made
+            baseline_ts_done = self.get_baseline_info("cam_ts_done")
 
             # Check if time series files already exist,
             # if so don't rely on climo years from history location
@@ -421,8 +421,8 @@ class AdfInfo(AdfConfig):
             cam_hist_locs = [cam_hist_locs] * self.__num_cases
         # End if
 
-        #Get cleaned nested list of hist_str for test case(s) (component.hist_num, eg cam.h0)
-        cam_hist_str = self.__cam_climo_info.get('hist_str', None)
+        # Get cleaned nested list of hist_str for test case(s) (component.hist_num, eg cam.h0)
+        cam_hist_str = self.__cam_climo_info.get("hist_str", None)
 
         if not cam_hist_str:
             hist_str = [["cam.h0a"]] * self.__num_cases
@@ -493,7 +493,7 @@ class AdfInfo(AdfConfig):
             # them has one sent a case with none into the search below and
             # tripped over its empty location.
             if cam_hist_locs[case_idx]:
-                #Grab first possible hist string, just looking for years of run
+                # Grab first possible hist string, just looking for years of run
                 hist_str_use = hist_str_case[0]
 
                 # Get climo years for verification or assignment if missing
@@ -1020,21 +1020,21 @@ class AdfInfo(AdfConfig):
             raise AdfError(errmsg)
         # End if
 
-        #The file names carry the period they hold, so use those rather than
-        #opening the files: overlapping sets (years 1-20 alongside years 1-40,
-        #left behind when a run is extended and the time series are remade)
-        #cannot be opened together, and this runs during ADF setup, so failing
-        #here takes down the whole run before any diagnostic starts.
+        # The file names carry the period they hold, so use those rather than
+        # opening the files: overlapping sets (years 1-20 alongside years 1-40,
+        # left behind when a run is extended and the time series are remade)
+        # cannot be opened together, and this runs during ADF setup, so failing
+        # here takes down the whole run before any diagnostic starts.
         span = utils.ts_file_span(ts_files)
         if span and len(span[0]) >= 4:
             syr = int(span[0][:4])
             eyr = int(span[1][:4])
             _warn_on_long_climo_range(syr, eyr)
             return syr, eyr
-        #End if
+        # End if
 
-        #Read in file(s) -- names whose dates could not be read, so the period
-        #has to come from the data itself:
+        # Read in file(s) -- names whose dates could not be read, so the period
+        # has to come from the data itself:
         if len(ts_files) == 1:
             cam_ts_data = xr.open_dataset(ts_files[0], decode_times=True)
         else:
@@ -1055,6 +1055,6 @@ class AdfInfo(AdfConfig):
         return syr, eyr
 
 
-#++++++++++++++++++++
-#End Class definition
-#++++++++++++++++++++
+# ++++++++++++++++++++
+# End Class definition
+# ++++++++++++++++++++

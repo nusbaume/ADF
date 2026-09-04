@@ -347,12 +347,20 @@ def create_time_series_gents(adf, baseline=False):
             if constit_dict:
                 res = adf.variable_defaults
                 for der_var, constit_list in constit_dict.items():
-                    derive_variable(adf, case_name, der_var, res, ts_dir,
-                                    constit_list, hist_str=hist_str,
-                                    syr=start_year, eyr=end_year)
-                #End for
-            #End if
-        #End for hist_str
-    #End cases loop
+                    derive_variable(
+                        adf,
+                        case_name,
+                        der_var,
+                        res,
+                        ts_dir,
+                        constit_list,
+                        hist_str=hist_str,
+                        syr=start_year,
+                        eyr=end_year,
+                    )
+                # End for
+            # End if
+        # End for hist_str
+    # End cases loop
 
     print("  ...CAM time series file generation has finished successfully.")

@@ -279,7 +279,6 @@ class AdfDeriveTestRoutine(unittest.TestCase):
             self.assertEqual(sorted(Path(tmpdir).glob("*RESTOM*.nc")), [])
 
     def test_overlapping_constituents_resolved_by_years(self):
-
         """
         The same two sets, but with the years being processed given: the set
         covering them is used and the derived variable is produced, which is
@@ -288,18 +287,29 @@ class AdfDeriveTestRoutine(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for var in ("FSNT", "FLNT"):
-                _write_ts(Path(tmpdir) / f"case.cam.h0a.{var}.000101-002012.nc",
-                          var, 1, 20)
-                _write_ts(Path(tmpdir) / f"case.cam.h0a.{var}.000101-004012.nc",
-                          var, 1, 40)
+                _write_ts(
+                    Path(tmpdir) / f"case.cam.h0a.{var}.000101-002012.nc", var, 1, 20
+                )
+                _write_ts(
+                    Path(tmpdir) / f"case.cam.h0a.{var}.000101-004012.nc", var, 1, 40
+                )
 
-            derive_variable(_StubAdf(), "case", "RESTOM", res={}, ts_dir=tmpdir,
-                            constit_list=["FSNT", "FLNT"], hist_str="cam.h0a",
-                            syr=1, eyr=40)
+            derive_variable(
+                _StubAdf(),
+                "case",
+                "RESTOM",
+                res={},
+                ts_dir=tmpdir,
+                constit_list=["FSNT", "FLNT"],
+                hist_str="cam.h0a",
+                syr=1,
+                eyr=40,
+            )
 
             out = sorted(Path(tmpdir).glob("*RESTOM*.nc"))
-            self.assertEqual([f.name for f in out],
-                             ["case.cam.h0a.RESTOM.000101-004012.nc"])
+            self.assertEqual(
+                [f.name for f in out], ["case.cam.h0a.RESTOM.000101-004012.nc"]
+            )
             with xr.open_dataset(out[0]) as ds:
                 self.assertEqual(len(ds.time), 480)
 
