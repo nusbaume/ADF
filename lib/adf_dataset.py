@@ -213,18 +213,16 @@ class AdfData:
             ds = xr.open_dataset(sfil, decode_times=False)
         if ds is None:
             warnings.warn("\t    WARNING: invalid data on load_dataset")
-        # assign time to midpoint of interval (even if it is already)
-        if 'time_bnds' in ds:
-            t = ds['time_bnds'].mean(dim='nbnd')
-            t.attrs = ds['time'].attrs
-            ds = ds.assign_coords({'time':t})
-        elif 'time_bounds' in ds:
-            t = ds['time_bounds'].mean(dim='nbnd')
-            t.attrs = ds['time'].attrs
-            ds = ds.assign_coords({'time':t})
-        else:
+            return ds
+        # Assign time to the midpoint of the interval each step covers.  The
+        # shared helper reads the bounds the file names for itself, so a file
+        # calling them something other than 'time_bnds' is handled too, and it
+        # hands back the dataset it was given when the file records no bounds:
+        fixed = utils.use_time_bounds_midpoint(ds)
+        if fixed is ds:
             warnings.warn("\t    INFO: Timeseries file does not have time bounds info.")
-        return xr.decode_cf(ds)
+        # End if
+        return xr.decode_cf(fixed)
 
     def load_timeseries_da(self, case, variablename):
         """Return DataArray from time series file(s).
@@ -544,7 +542,10 @@ class AdfData:
             ds = xr.open_dataset(sfil)
         if ds is None:
             warnings.warn("\t    WARNING: invalid data on load_dataset")
-        return ds
+            return ds
+        # Time stamps that name one end of an averaging interval put steps in
+        # the wrong year, so use what the file records about the interval:
+        return utils.use_time_bounds_midpoint(ds)
 
     def load_da(self, fils, variablename, **kwargs):
         """Return xarray DataArray from file(s) w/ optional scale factor, offset, new units."""

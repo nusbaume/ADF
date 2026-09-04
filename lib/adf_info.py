@@ -1008,22 +1008,9 @@ class AdfInfo(AdfConfig):
         else:
             cam_ts_data = xr.open_mfdataset(ts_files, decode_times=True, combine='by_coords')
 
-        #Average time dimension over time bounds, if bounds exist:
-        if 'time_bnds' in cam_ts_data:
-            time_bounds_name = 'time_bnds'
-        elif 'time_bounds' in cam_ts_data:
-            time_bounds_name = 'time_bounds'
-        else:
-            time_bounds_name = None
-
-        if time_bounds_name:
-            time = cam_ts_data['time']
-            #NOTE: force `load` here b/c if dask & time is cftime, throws a NotImplementedError:
-            time = xr.DataArray(cam_ts_data[time_bounds_name].load().mean(dim='nbnd').values,
-                                dims=time.dims, attrs=time.attrs)
-            cam_ts_data['time'] = time
-            cam_ts_data.assign_coords(time=time)
-            cam_ts_data = xr.decode_cf(cam_ts_data)
+        # Use the interval each step covers rather than its stamp, so that the
+        # years found here are the years the data actually covers:
+        cam_ts_data = utils.use_time_bounds_midpoint(cam_ts_data)
 
         #Extract first and last years from dataset:
         syr = int(cam_ts_data.time[0].dt.year.values)

@@ -233,9 +233,21 @@ def amwg_table(adf):
                 continue
             #End if
 
-            #Load model variable data from file:
-            ds = utils.load_dataset(ts_files)
-            data = ds[var]
+            # Load model variable data from file, through the ADF's own data
+            # layer so that the scale factor, offset and units named in the
+            # variable defaults are applied.  Reading the files directly gave
+            # tables in the model's raw units, which is not what the defaults
+            # say the variable should be reported in.
+            add_offset, scale_factor = adf.data.get_value_converters(case_name, var)
+            data = adf.data.load_da(
+                ts_files, var, add_offset=add_offset, scale_factor=scale_factor
+            )
+            if data is None:
+                errmsg = f"\t    WARNING: Load failed for variable '{var}', "
+                errmsg += "so it will be skipped."
+                print(errmsg)
+                continue
+            # End if
 
             #Extract units string, if available:
             if hasattr(data, 'units'):

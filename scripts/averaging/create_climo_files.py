@@ -351,12 +351,13 @@ def process_variable(adf_user, ts_files, syr, eyr, output_file):
     try:
         # Using chunks={} forces xarray to use dask, which handles memory better
         # than loading everything into RAM at once via open_dataset
-        with xr.open_mfdataset(ts_files, decode_times=True, combine='by_coords',
-                               chunks={'time': 12}) as ds:
-            if 'time_bnds' in ds:
-                new_time = ds['time_bnds'].load().mean(dim='nbnd')
-                ds = ds.assign_coords(time=new_time.values)
-                ds = xr.decode_cf(ds)
+        with xr.open_mfdataset(
+            ts_files, decode_times=True, combine="by_coords", chunks={"time": 12}
+        ) as ds:
+            # Use the interval each step covers rather than its stamp.  This
+            # looked only for 'time_bnds' before, so a model that calls them
+            #'time_bounds' had its climatology built from the raw stamps.
+            ds = utils.use_time_bounds_midpoint(ds)
 
             tslice = get_time_slice_by_year(ds.time, int(syr), int(eyr))
             ds_subset = ds.isel(time=tslice)

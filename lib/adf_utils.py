@@ -6,6 +6,8 @@ Functions
 find_ts_files(), select_ts_files(), ts_files_overlap(), ts_file_span(),
 as_hist_str_list(), pick_hist_str()
     re-exported from adf_file_utils; time series file discovery
+use_time_bounds_midpoint()
+    set the time coordinate to the midpoint of the interval each step covers
 load_dataset()
     generalized load dataset method used for plotting/analysis functions
 mask_land_or_ocean(arr, msk, use_nan=False)
@@ -90,6 +92,74 @@ seasons = {"ANN": np.arange(1,13,1),
 #HELPER FUNCTIONS
 #################
 
+def use_time_bounds_midpoint(ds, time_name="time"):
+    """
+    Set the time coordinate to the midpoint of the interval each step covers.
+
+    CAM stamps a monthly average with one end of the interval it covers, and
+    which end depends on the model version: an older CAM h0 file stamps January
+    with February 1st.  Anything that then asks which year a step belongs to --
+    selecting years, averaging by year, grouping by month -- puts that step in
+    the wrong place, which silently drops a year from an annual mean and shifts
+    a seasonal cycle by a month.  The interval itself is not in doubt: the file
+    records it, so the midpoint of the recorded interval is used instead.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        dataset to correct
+    time_name : str, optional
+        name of the time coordinate; defaults to ``"time"``
+
+    Returns
+    -------
+    xr.Dataset
+        a dataset whose time coordinate is the midpoint of its bounds, or the
+        dataset unchanged when the file does not say what its bounds are.
+
+    Notes
+    -----
+    The bounds variable is taken from the ``bounds`` attribute of the time
+    coordinate, which is where CF says it belongs and is authoritative when it
+    is there.  Only if that attribute is missing, or names something the file
+    does not contain, are the conventional names ``time_bnds`` and
+    ``time_bounds`` tried.  Files that record no bounds are returned untouched
+    -- there is then nothing better to go on than the stamp itself.
+
+    Doing this where files are opened, rather than in each script, is
+    deliberate: a script that does not know about the stamping convention
+    should not have to.
+    """
+    if time_name not in ds.variables:
+        return ds
+    # End if
+
+    # What the file itself says its bounds are, then the conventional names:
+    candidates = [ds[time_name].attrs.get("bounds"), "time_bnds", "time_bounds"]
+    bounds_name = next(
+        (name for name in candidates if name and name in ds.variables), None
+    )
+    if bounds_name is None:
+        return ds
+    # End if
+
+    bounds = ds[bounds_name]
+    # The bounds are (time, 2), but the second dimension is called 'nbnd' by
+    # CAM and other names elsewhere, so take whichever one is not time:
+    other_dims = [dim for dim in bounds.dims if dim != time_name]
+    if len(other_dims) != 1:
+        # Not a shape this can make sense of, so leave the file alone:
+        return ds
+    # End if
+
+    # load() first: averaging cftime under dask raises NotImplementedError.
+    midpoint = bounds.load().mean(dim=other_dims[0])
+    attrs = ds[time_name].attrs
+    ds = ds.assign_coords({time_name: midpoint})
+    ds[time_name].attrs = attrs
+    return ds
+
+
 def load_dataset(fils):
     """
     This method exists to get an xarray Dataset from input file information that can be passed into the plotting methods.
@@ -111,10 +181,13 @@ def load_dataset(fils):
         warnings.warn(f"\t    WARNING: Input file list is empty.")
         return None
     elif len(fils) > 1:
-        return xr.open_mfdataset(fils, combine='by_coords')
+        ds = xr.open_mfdataset(fils, combine="by_coords")
     else:
-        return xr.open_dataset(fils[0])
-    #End if
+        ds = xr.open_dataset(fils[0])
+    # End if
+    # Time stamps that name one end of an averaging interval put steps in the
+    # wrong year, so use what the file records about the interval instead:
+    return use_time_bounds_midpoint(ds)
 #End def
 
 
