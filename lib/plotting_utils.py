@@ -30,7 +30,6 @@ _plot_line(axobject, xdata, ydata, color, **kwargs)
 import numpy as np
 import xarray as xr
 import matplotlib as mpl
-import matplotlib.cm as cm
 import cartopy.crs as ccrs
 
 from adf_diag import AdfDiag
@@ -307,6 +306,29 @@ def meridional_plot_preslon(ax, lon, lev, data, **kwargs):
     ax.set_ylim([np.max(lev), np.min(lev)])
     return img, ax
 
+def colormap_object(cmap):
+    """
+    Return a matplotlib Colormap, given either one or the name of one.
+
+    Parameters
+    ----------
+    cmap : str or matplotlib.colors.Colormap
+        a colormap, or the name the variable defaults give for one
+
+    Returns
+    -------
+    matplotlib.colors.Colormap
+
+    Notes
+    -----
+    Replaces the lookup matplotlib removed in 3.9, which the ADF still called.
+    """
+    if isinstance(cmap, str):
+        return mpl.colormaps[cmap]
+    # End if
+    return cmap
+
+
 def prep_contour_plot(adata, bdata, diffdata, pctdata, **kwargs):
     """Preparation for making contour plots.
 
@@ -358,7 +380,7 @@ def prep_contour_plot(adata, bdata, diffdata, pctdata, **kwargs):
     if 'contour_levels' in kwargs:
         levels1 = kwargs['contour_levels']
         if ('non_linear' in kwargs) and (kwargs['non_linear']):
-            cmap_obj = cm.get_cmap(cmap1)
+            cmap_obj = colormap_object(cmap1)
             norm1 = mpl.colors.BoundaryNorm(levels1, cmap_obj.N)
         else:
             norm1 = mpl.colors.Normalize(vmin=min(levels1), vmax=max(levels1))
@@ -368,14 +390,14 @@ def prep_contour_plot(adata, bdata, diffdata, pctdata, **kwargs):
 
         levels1 = np.arange(*kwargs['contour_levels_range'])
         if ('non_linear' in kwargs) and (kwargs['non_linear']):
-            cmap_obj = cm.get_cmap(cmap1)
+            cmap_obj = colormap_object(cmap1)
             norm1 = mpl.colors.BoundaryNorm(levels1, cmap_obj.N)
         else:
             norm1 = mpl.colors.Normalize(vmin=min(levels1), vmax=max(levels1))
     else:
         levels1 = np.linspace(minval, maxval, 12)
         if ('non_linear' in kwargs) and (kwargs['non_linear']):
-            cmap_obj = cm.get_cmap(cmap1)
+            cmap_obj = colormap_object(cmap1)
             norm1 = mpl.colors.BoundaryNorm(levels1, cmap_obj.N)
         else:
             norm1 = mpl.colors.Normalize(vmin=minval, vmax=maxval)
