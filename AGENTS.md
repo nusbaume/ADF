@@ -55,7 +55,9 @@ Three workflows run on every PR:
    `testable_files` set:
    `lib/adf_base.py`, `lib/adf_config.py`, `lib/adf_info.py`, `lib/adf_obs.py`,
    `lib/adf_web.py`, `lib/adf_diag.py`.
-3. **`ADF_pre-commit.yaml`** — `pre-commit run -a`; the only hook configured is `check-yaml`.
+3. **`ADF_pre-commit.yaml`** — `pre-commit run -a --show-diff-on-failure`; the hooks are
+   `check-yaml` and `black` (pinned in `.pre-commit-config.yaml`, applied to `lib/` only,
+   with `lib/externals/` force-excluded). This is the only CI check of `black` formatting.
 
 **Un-linted, un-tested by CI:** everything in `scripts/`, plus `lib/adf_dataset.py`,
 `lib/adf_derive.py`, `lib/adf_utils.py`, `lib/plotting_functions.py`, `lib/plotting_utils.py`.

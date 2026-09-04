@@ -6,12 +6,15 @@ repos:
     hooks:
       - id: check-yaml
 
-  #Run the "black" python code formatter.  The version here must
-  #match the version pinned in the "black_formatting" job of
-  #".github/workflows/ADF_linting.yaml", so that a developer running
-  #"pre-commit" locally gets the same answer that CI will.  All of
-  #black's actual settings (line length, excluded paths) live in the
-  #"[tool.black]" section of the top-level "pyproject.toml".
+  #Run the "black" python code formatter.  The "rev" below is the
+  #single place the black version is pinned, and it is used both by
+  #a developer running "pre-commit" locally and by the "pre-commit"
+  #CI workflow (".github/workflows/ADF_pre-commit.yaml"), so the two
+  #always agree.  Pinning it (rather than tracking black's latest
+  #release) means that a new black "stable style" cannot break CI
+  #unexpectedly.  All of black's actual settings (line length,
+  #excluded paths) live in the "[tool.black]" section of the
+  #top-level "pyproject.toml".
   - repo: https://github.com/psf/black
     rev: 25.11.0
     hooks:

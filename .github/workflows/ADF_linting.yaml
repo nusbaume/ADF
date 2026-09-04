@@ -36,34 +36,3 @@ jobs:
         ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: .github/scripts/pr_mod_file_tests.py --access_token $ACCESS_TOKEN --pr_num $PR_NUMBER --rcfile lib/test/pylintrc --pylint_level 9.5
 
-  #This job is designed to run the "black" formatter against
-  #every python file under the ADF "lib" directory.  Black is
-  #run in "--check" mode, which makes no modifications but
-  #exits with a non-zero status (and thus fails CI) if any
-  #file is not formatted the way black would format it.
-  #
-  #All of black's settings, including the exclusion of the
-  #vendored code under "lib/externals", live in the "[tool.black]"
-  #section of the top-level "pyproject.toml", so that running
-  #"black lib" locally does exactly what this job does.
-  black_formatting:
-    runs-on: ubuntu-latest
-    steps:
-    # acquire github action routines
-    - uses: actions/checkout@v6
-    # acquire specific version of python
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.12' # Use python 3.12
-    # install black, pinned so that new black releases (which can
-    # change the "stable style") don't break CI unexpectedly.  This
-    # version must match the "rev" of the black hook in
-    # ".pre-commit-config.yaml":
-    - name: Install black
-      run: |
-        python -m pip install --upgrade pip  # Install latest version of PIP
-        pip install 'black==25.11.0'         # Install Black python package
-    # check the formatting of all python code under "lib":
-    - name: Run black on ADF lib
-      run: black --check --diff lib

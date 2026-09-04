@@ -4,17 +4,17 @@
 #file exists purely to give command-line tools (currently just
 #"black") a single, version-controlled source of truth.  This
 #way a developer running "black" locally gets exactly the same
-#result as the "black_formatting" CI job.
+#result as the "black" hook run by the "pre-commit" CI workflow.
 
 #++++++++++++++++++++++++++++++++++
 #Configuration for the "black" tool
 #++++++++++++++++++++++++++++++++++
 
-#Please note that the black version itself is pinned in two
-#other places, and all three should be updated together:
+#Please note that this file does not pin the black version
+#itself.  That is done in one other place, which is what both
+#a local "pre-commit" run and the "pre-commit" CI workflow use:
 #
-#  .github/workflows/ADF_linting.yaml  (the "black_formatting" CI job)
-#  .pre-commit-config.yaml             (the "black" pre-commit hook)
+#  .pre-commit-config.yaml  (the "rev" of the "black" hook)
 
 [tool.black]
 
