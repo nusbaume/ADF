@@ -33,7 +33,7 @@ sys.path.append(_ADF_LIB_DIR)
 try:
     import numpy as np
     import xarray as xr
-    from adf_utils import use_time_bounds_midpoint
+    from adf_utils import plain_text_units, use_time_bounds_midpoint
 
     _HAS_ADF_UTILS = True
 except ImportError:
@@ -223,6 +223,56 @@ class TimeBoundsMidpointTestRoutine(unittest.TestCase):
         fixed = use_time_bounds_midpoint(ds)
 
         self.assertEqual(fixed["time"].values[0].month, 1)
+
+
+@unittest.skipUnless(_HAS_ADF_UTILS, "adf_utils dependencies not available")
+class PlainTextUnitsTestRoutine(unittest.TestCase):
+    """
+    Unit tests for rendering a unit string as plain text.
+
+    The units in the variable defaults are written for plot labels, where
+    matplotlib renders the LaTeX in them.  Written into a table -- a csv file
+    or a web page -- the markup appears exactly as typed, which is what the
+    AMWG tables started showing once they began using these units.
+    """
+
+    def test_every_markup_in_the_defaults(self):
+        """
+        Each form that appears in lib/adf_variable_defaults.yaml today.
+        """
+
+        cases = {
+            "mm d$^{-1}$": "mm d^-1",
+            "W m$^{-2}$": "W m^-2",
+            "Wm$^{-2}$": "Wm^-2",
+            "kg m$^{-2}$": "kg m^-2",
+            "g m$^{-2}$": "g m^-2",
+            "hPa d$^{-1}$": "hPa d^-1",
+            "mol mol$^{-1}$": "mol mol^-1",
+            "ms$^{-1}$": "ms^-1",
+            r"$\mu$g/m3": "ug/m3",
+        }
+
+        for markup, plain in cases.items():
+            self.assertEqual(plain_text_units(markup), plain, msg=markup)
+
+    def test_plain_units_are_untouched(self):
+        """
+        Most units carry no markup, and those must come through unchanged --
+        including after the defaults are rewritten in plain text, which is
+        what pull request #427 proposes.
+        """
+
+        for unit in ("K", "Pa", "hPa", "m/s", "g/m2", "W/m2", "fraction", "--"):
+            self.assertEqual(plain_text_units(unit), unit)
+
+    def test_non_strings_are_returned_as_they_are(self):
+        """
+        A variable with no units at all should not become the string "None".
+        """
+
+        self.assertIsNone(plain_text_units(None))
+        self.assertEqual(plain_text_units(1), 1)
 
 
 # Run unit tests if this script is called directly:

@@ -6,6 +6,8 @@ Functions
 find_ts_files(), select_ts_files(), ts_files_overlap(), ts_file_span(),
 as_hist_str_list(), pick_hist_str()
     re-exported from adf_file_utils; time series file discovery
+plain_text_units()
+    render a unit string from the variable defaults as plain text
 use_time_bounds_midpoint()
     set the time coordinate to the midpoint of the interval each step covers
 load_dataset()
@@ -92,6 +94,51 @@ seasons = {"ANN": np.arange(1,13,1),
 #HELPER FUNCTIONS
 #################
 
+# Simple LaTeX seen in the units of the variable defaults, and what each means
+# as plain text.  The defaults were written for plot labels, where matplotlib
+# renders them; a table written as text or HTML shows them as they are.
+_LATEX_UNIT_REPLACEMENTS = (
+    ("\\mu", "u"),
+    ("^{", "^"),
+    ("}", ""),
+    ("$", ""),
+    ("\\,", " "),
+    ("\\", ""),
+)
+
+
+def plain_text_units(unit):
+    """
+    Render a unit string as plain text.
+
+    The units in the variable defaults are written for plot labels, where
+    matplotlib renders the LaTeX in them, so ``mm d$^{-1}$`` appears as mm
+    d^-1 with a proper superscript.  Written into a table -- a csv file, or a
+    web page -- the same string appears exactly as it is typed, which is not
+    something to put in front of a reader.
+
+    Parameters
+    ----------
+    unit : str
+        the unit as the variable defaults give it
+
+    Returns
+    -------
+    str
+        the same unit with its markup resolved: ``mm d$^{-1}$`` becomes
+        ``mm d^-1``.  A unit with no markup is returned unchanged, so this is
+        safe to apply to anything and does nothing to units that are already
+        plain.
+    """
+    if not isinstance(unit, str) or ("$" not in unit and "\\" not in unit):
+        return unit
+    # End if
+    for markup, plain in _LATEX_UNIT_REPLACEMENTS:
+        unit = unit.replace(markup, plain)
+    # End for
+    return unit.strip()
+
+
 def use_time_bounds_midpoint(ds, time_name="time"):
     """
     Set the time coordinate to the midpoint of the interval each step covers.
@@ -160,7 +207,7 @@ def use_time_bounds_midpoint(ds, time_name="time"):
     return ds
 
 
-def load_dataset(fils):
+def load_dataset(fils, use_time_bounds=False):
     """
     This method exists to get an xarray Dataset from input file information that can be passed into the plotting methods.
 
@@ -176,6 +223,10 @@ def load_dataset(fils):
     Notes
     -----
     When just one entry is provided, use `open_dataset`, otherwise `open_mfdatset`
+
+    Pass ``use_time_bounds=True`` for time series files, so that steps stamped
+    at one end of their averaging interval are counted in the right month and
+    year.  See `use_time_bounds_midpoint`.
     """
     if len(fils) == 0:
         warnings.warn(f"\t    WARNING: Input file list is empty.")
@@ -185,9 +236,14 @@ def load_dataset(fils):
     else:
         ds = xr.open_dataset(fils[0])
     # End if
-    # Time stamps that name one end of an averaging interval put steps in the
-    # wrong year, so use what the file records about the interval instead:
-    return use_time_bounds_midpoint(ds)
+    if use_time_bounds:
+        # Time stamps that name one end of an averaging interval put steps in
+        # the wrong year, so use what the file records about it instead.  Off
+        # by default: this function also reads climatology files, whose time
+        # coordinate is month numbers and should stay that way.
+        ds = use_time_bounds_midpoint(ds)
+    # End if
+    return ds
 #End def
 
 

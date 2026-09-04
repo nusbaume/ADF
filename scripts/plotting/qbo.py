@@ -101,11 +101,17 @@ def qbo(adfobj):
 
     #----Read in the case data and baseline
     ncases = len(case_loc)
-    casedat = [utils.load_dataset(
-                   utils.select_ts_files(
-                       sorted(Path(case_loc[i]).glob(f"{case_names[i]}.*.U.*.nc")),
-                       syears[i], eyears[i]))
-               for i in range(0,ncases,1)]
+    casedat = [
+        utils.load_dataset(
+            utils.select_ts_files(
+                sorted(Path(case_loc[i]).glob(f"{case_names[i]}.*.U.*.nc")),
+                syears[i],
+                eyears[i],
+            ),
+            use_time_bounds=True,
+        )
+        for i in range(0, ncases, 1)
+    ]
 
     #Find indices for all case datasets that don't contain a zonal wind field (U):
     bad_idxs = []

@@ -234,7 +234,13 @@ class AdfData:
             warnings.warn("\t    WARNING: Did not find case time series file(s), "
                           f"variable: {variablename}")
             return None
-        return self.load_da(fils, variablename, add_offset=add_offset, scale_factor=scale_factor)
+        return self.load_da(
+            fils,
+            variablename,
+            use_time_bounds=True,
+            add_offset=add_offset,
+            scale_factor=scale_factor,
+        )
 
     def load_reference_timeseries_da(self, field, apply_scaling=True):
         """Return a DataArray time series to be used as reference
@@ -261,7 +267,13 @@ class AdfData:
             add_offset = 0
             scale_factor = 1
 
-        return self.load_da(fils, field, add_offset=add_offset, scale_factor=scale_factor)
+        return self.load_da(
+            fils,
+            field,
+            use_time_bounds=True,
+            add_offset=add_offset,
+            scale_factor=scale_factor,
+        )
 
 
     #------------------
@@ -527,8 +539,15 @@ class AdfData:
     #---------------------------
     # DataSet and DataArray load
     #---------------------------
-    def load_dataset(self, fils):
-        """Return xarray DataSet from file(s)"""
+    def load_dataset(self, fils, use_time_bounds=False):
+        """Return xarray DataSet from file(s).
+
+        `use_time_bounds` moves the time coordinate to the midpoint of the
+        interval each step covers, which is what a time series wants.  It is
+        off by default: climatology and regridded files carry a time
+        coordinate of month numbers, and turning that into dates would change
+        the files the ADF writes and reads back.
+        """
         if len(fils) == 0:
             warnings.warn("\t    WARNING: Input file list is empty.")
             return None
@@ -543,13 +562,19 @@ class AdfData:
         if ds is None:
             warnings.warn("\t    WARNING: invalid data on load_dataset")
             return ds
-        # Time stamps that name one end of an averaging interval put steps in
-        # the wrong year, so use what the file records about the interval:
-        return utils.use_time_bounds_midpoint(ds)
+        if use_time_bounds:
+            # Time stamps that name one end of an averaging interval put steps
+            # in the wrong year, so use what the file records about it:
+            ds = utils.use_time_bounds_midpoint(ds)
+        # End if
+        return ds
 
-    def load_da(self, fils, variablename, **kwargs):
-        """Return xarray DataArray from file(s) w/ optional scale factor, offset, new units."""
-        ds = self.load_dataset(fils)
+    def load_da(self, fils, variablename, use_time_bounds=False, **kwargs):
+        """Return xarray DataArray from file(s) w/ optional scale factor, offset, new units.
+
+        `use_time_bounds` is passed to `load_dataset`; see there.
+        """
+        ds = self.load_dataset(fils, use_time_bounds=use_time_bounds)
         if ds is None:
             warnings.warn(f"\t    WARNING: Load failed for {variablename}")
             return None

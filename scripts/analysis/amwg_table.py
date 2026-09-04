@@ -46,6 +46,9 @@ def amwg_table(adf):
     output_loc      -> Location to write AMWG table files to, provided by "cam_diag_plot_loc"
     var_list        -> List of CAM output variables provided by "diag_var_list"
     var_defaults    -> Dict that has keys that are variable names and values that are plotting preferences/defaults.
+    adf.data        -> The ADF's data layer, used to read the time series so
+                       that the scale factor, offset and units from the
+                       variable defaults are applied.
 
     and if doing a CAM baseline comparison:
 
@@ -240,7 +243,11 @@ def amwg_table(adf):
             # say the variable should be reported in.
             add_offset, scale_factor = adf.data.get_value_converters(case_name, var)
             data = adf.data.load_da(
-                ts_files, var, add_offset=add_offset, scale_factor=scale_factor
+                ts_files,
+                var,
+                use_time_bounds=True,
+                add_offset=add_offset,
+                scale_factor=scale_factor,
             )
             if data is None:
                 errmsg = f"\t    WARNING: Load failed for variable '{var}', "
@@ -249,9 +256,11 @@ def amwg_table(adf):
                 continue
             # End if
 
-            #Extract units string, if available:
-            if hasattr(data, 'units'):
-                unit_str = data.units
+            # Extract units string, if available.  The defaults write units
+            # for plot labels, where matplotlib renders the LaTeX in them, so
+            # they are resolved to plain text before going into a table:
+            if hasattr(data, "units"):
+                unit_str = utils.plain_text_units(data.units)
             else:
                 unit_str = '--'
 
