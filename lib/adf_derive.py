@@ -155,8 +155,8 @@ def check_derive(
 
 ########
 
-
-def _find_constit(ts_dir, case_name, constit, hist_str=None):
+def _find_constit(ts_dir, case_name, constit, hist_str=None, *,
+                  syr=None, eyr=None):
     """
     Locate a constituent's time series file(s) for one case and stream.
 
@@ -178,6 +178,11 @@ def _find_constit(ts_dir, case_name, constit, hist_str=None):
         variable name to search for
     hist_str : str, optional
         history stream being processed, e.g. "cam.h0a"
+    syr, eyr : int, optional
+        first and last year being processed.  When given, only the files
+        needed to cover them are returned, so a directory holding more than
+        one set of files for the same constituent (years 1-20 alongside years
+        1-40, say) can still be used.
 
     Returns
     -------
@@ -193,25 +198,24 @@ def _find_constit(ts_dir, case_name, constit, hist_str=None):
     for pattern in patterns:
         found = utils.find_ts_files(ts_dir, pattern)
         if found:
-            return found
-        # End if
-    # End for
+            return utils.select_ts_files(found, syr, eyr)
+        #End if
+    #End for
     return []
 
 
-def derive_variable(
-    self,
-    case_name,
-    var,
-    res=None,
-    ts_dir=None,
-    constit_list=None,
-    overwrite=None,
-    hist_str=None,
-):
+def derive_variable(self, case_name, var, res=None, ts_dir=None,
+                         constit_list=None, overwrite=None, hist_str=None, *,
+                         syr=None, eyr=None):
     """
     Derive variables acccording to steps given here.  Since derivations will depend on the
     variable, each variable to derive will need its own set of steps below.
+
+    The years being processed (`syr`, `eyr`) narrow each constituent's files
+    to the ones needed, so a directory that holds two sets for the same
+    constituent -- years 1-20 alongside years 1-40, which happens when a run
+    is extended and the time series are remade over a longer period -- can
+    still be used.
 
     A constituent may be split across several consecutive time series files,
     which is what GenTS produces when 'gents_slice_years' is set.  All of a
@@ -244,7 +248,8 @@ def derive_variable(
     constit_matches = {}
     for constit in constit_list:
         # Check if the constituent file(s) are present, if so add them to the dict
-        matches = _find_constit(ts_dir, case_name, constit, hist_str)
+        matches = _find_constit(ts_dir, case_name, constit, hist_str,
+                                syr=syr, eyr=eyr)
         if not matches:
             continue
         if utils.ts_files_overlap(matches):
@@ -357,9 +362,8 @@ def derive_variable(
             # the whole list: taking [0] would multiply a full-span variable by
             # a single chunk, which time-axis alignment turns silently into NaN.
             # Check if PMID is in file:
-            ds_pmid = self.data.load_dataset(
-                _find_constit(ts_dir, case_name, "PMID", hist_str)
-            )
+            ds_pmid = self.data.load_dataset(_find_constit(ts_dir, case_name, "PMID", hist_str,
+                                                          syr=syr, eyr=eyr))
             if not ds_pmid:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'PMID' is in the CAM "
@@ -371,9 +375,8 @@ def derive_variable(
                 return
 
             # Check if T is in file:
-            ds_t = self.data.load_dataset(
-                _find_constit(ts_dir, case_name, "T", hist_str)
-            )
+            ds_t = self.data.load_dataset(_find_constit(ts_dir, case_name, "T", hist_str,
+                                                       syr=syr, eyr=eyr))
             if not ds_t:
                 errmsg = "Missing necessary files for dry air density (rho) "
                 errmsg += "calculation.\nPlease make sure 'T' is in the CAM "

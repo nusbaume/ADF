@@ -141,11 +141,36 @@ class AdfData:
     # Time series files
     # ------------------
     # Test case(s)
+    def _select_ts_files(self, fils, syr, eyr, field):
+        """Narrow time series files to the years wanted, saying so in the log.
+
+        Files are only narrowed when they could not be opened together, so a
+        message here means the directory held more than one set for `field`.
+        """
+        chosen = utils.select_ts_files(fils, syr, eyr)
+        if len(chosen) != len(fils):
+            msg = f"\t    INFO: '{field}' has {len(fils)} time series files that "
+            msg += "cannot be used together, so the "
+            msg += f"{len(chosen)} needed for years {syr}-{eyr} were used."
+            #Say it on screen as well as in the log: the numbers a user sees
+            #change when this happens, and that should not be silent.
+            print(msg)
+            self.adf.debug_log(
+                msg + "  Files used: "
+                + ", ".join(str(Path(f).name) for f in chosen))
+        #End if
+        return chosen
+
     def get_timeseries_file(self, case, field, hist_str=None):
         """Return list of test time series files.
 
         If hist_str is given, restrict the search to that history stream
         (time series files are named {case}.{hist_str}.{field}.*.nc).
+
+        The files are narrowed to those needed for the case's climatology
+        years, so that a directory holding more than one set for the same
+        variable (years 1-20 alongside years 1-40, say) does not produce a
+        combined time axis with duplicate times.
         """
         # list of paths (could be multiple cases)
         ts_locs = self.adf.get_cam_info("cam_ts_loc", required=True)
@@ -154,14 +179,18 @@ class AdfData:
         if hist_str:
             ts_filenames = f"{case}.{hist_str}.{field}.*nc"
         else:
-            ts_filenames = f"{case}.*.{field}.*nc"
-        return utils.find_ts_files(ts_loc, ts_filenames)
+            ts_filenames = f'{case}.*.{field}.*nc'
+        fils = utils.find_ts_files(ts_loc, ts_filenames)
+        climo_yrs = self.adf.climo_yrs
+        return self._select_ts_files(fils, climo_yrs["syears"][caseindex],
+                                     climo_yrs["eyears"][caseindex], field)
 
     # Reference case (baseline/obs)
     def get_ref_timeseries_file(self, field, hist_str=None):
         """Return list of reference time series files.
 
         If hist_str is given, restrict the search to that history stream.
+        Narrowed to the baseline's climatology years, as for the test cases.
         """
         if self.adf.compare_obs:
             warnings.warn(
@@ -173,8 +202,11 @@ class AdfData:
         if hist_str:
             ts_filenames = f"{self.ref_case_label}.{hist_str}.{field}.*nc"
         else:
-            ts_filenames = f"{self.ref_case_label}.*.{field}.*nc"
-        return utils.find_ts_files(ts_loc, ts_filenames)
+            ts_filenames = f'{self.ref_case_label}.*.{field}.*nc'
+        fils = utils.find_ts_files(ts_loc, ts_filenames)
+        climo_yrs = self.adf.climo_yrs
+        return self._select_ts_files(fils, climo_yrs["syear_baseline"],
+                                     climo_yrs["eyear_baseline"], field)
 
     def load_timeseries_dataset(self, fils):
         """Return DataSet from time series file(s) and assign time to midpoint of interval"""
@@ -191,18 +223,16 @@ class AdfData:
             ds = xr.open_dataset(sfil, decode_times=False)
         if ds is None:
             warnings.warn("\t    WARNING: invalid data on load_dataset")
-        # assign time to midpoint of interval (even if it is already)
-        if "time_bnds" in ds:
-            t = ds["time_bnds"].mean(dim="nbnd")
-            t.attrs = ds["time"].attrs
-            ds = ds.assign_coords({"time": t})
-        elif "time_bounds" in ds:
-            t = ds["time_bounds"].mean(dim="nbnd")
-            t.attrs = ds["time"].attrs
-            ds = ds.assign_coords({"time": t})
-        else:
+            return ds
+        # Assign time to the midpoint of the interval each step covers.  The
+        # shared helper reads the bounds the file names for itself, so a file
+        # calling them something other than 'time_bnds' is handled too, and it
+        # hands back the dataset it was given when the file records no bounds:
+        fixed = utils.use_time_bounds_midpoint(ds)
+        if fixed is ds:
             warnings.warn("\t    INFO: Timeseries file does not have time bounds info.")
-        return xr.decode_cf(ds)
+        # End if
+        return xr.decode_cf(fixed)
 
     def load_timeseries_da(self, case, variablename):
         """Return DataArray from time series file(s).
@@ -217,7 +247,11 @@ class AdfData:
             )
             return None
         return self.load_da(
-            fils, variablename, add_offset=add_offset, scale_factor=scale_factor
+            fils,
+            variablename,
+            use_time_bounds=True,
+            add_offset=add_offset,
+            scale_factor=scale_factor,
         )
 
     def load_reference_timeseries_da(self, field, apply_scaling=True):
@@ -250,8 +284,15 @@ class AdfData:
             scale_factor = 1
 
         return self.load_da(
-            fils, field, add_offset=add_offset, scale_factor=scale_factor
+            fils,
+            field,
+            use_time_bounds=True,
+            add_offset=add_offset,
+            scale_factor=scale_factor,
         )
+
+
+    #------------------
 
     # ------------------
 
@@ -533,9 +574,16 @@ class AdfData:
 
     # ---------------------------
     # DataSet and DataArray load
-    # ---------------------------
-    def load_dataset(self, fils):
-        """Return xarray DataSet from file(s)"""
+    #---------------------------
+    def load_dataset(self, fils, use_time_bounds=False):
+        """Return xarray DataSet from file(s).
+
+        `use_time_bounds` moves the time coordinate to the midpoint of the
+        interval each step covers, which is what a time series wants.  It is
+        off by default: climatology and regridded files carry a time
+        coordinate of month numbers, and turning that into dates would change
+        the files the ADF writes and reads back.
+        """
         if len(fils) == 0:
             warnings.warn("\t    WARNING: Input file list is empty.")
             return None
@@ -549,11 +597,20 @@ class AdfData:
             ds = xr.open_dataset(sfil)
         if ds is None:
             warnings.warn("\t    WARNING: invalid data on load_dataset")
+            return ds
+        if use_time_bounds:
+            # Time stamps that name one end of an averaging interval put steps
+            # in the wrong year, so use what the file records about it:
+            ds = utils.use_time_bounds_midpoint(ds)
+        # End if
         return ds
 
-    def load_da(self, fils, variablename, **kwargs):
-        """Return xarray DataArray from file(s) w/ optional scale factor, offset, new units."""
-        ds = self.load_dataset(fils)
+    def load_da(self, fils, variablename, use_time_bounds=False, **kwargs):
+        """Return xarray DataArray from file(s) w/ optional scale factor, offset, new units.
+
+        `use_time_bounds` is passed to `load_dataset`; see there.
+        """
+        ds = self.load_dataset(fils, use_time_bounds=use_time_bounds)
         if ds is None:
             warnings.warn(f"\t    WARNING: Load failed for {variablename}")
             return None

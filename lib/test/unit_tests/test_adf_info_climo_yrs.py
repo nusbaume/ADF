@@ -181,8 +181,10 @@ class AdfInfoClimoYrsTestRoutine(unittest.TestCase):
         """
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            _write_ts(Path(tmpdir) / "case.cam.h0a.T.000101-002012.nc", "T", 1, 20)
-            _write_ts(Path(tmpdir) / "case.cam.h0b.T.010001-010512.nc", "T", 100, 5)
+            _write_ts(Path(tmpdir) / "case.cam.h0a.T.000101-002012.nc",
+                      "T", 1, 20)
+            _write_ts(Path(tmpdir) / "case.cam.h0b.T.010001-010412.nc",
+                      "T", 100, 5)
 
             syr, eyr = _call(_StubInfo(["T"]), tmpdir, "case", hist_str="cam.h0a")
 
@@ -195,18 +197,10 @@ class AdfInfoClimoYrsTestRoutine(unittest.TestCase):
         """
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            _write_ts(Path(tmpdir) / "case.cam.h0a.T.000101-002012.nc", "T", 1, 20)
-            _write_ts(
-                Path(tmpdir)
-                / "atm"
-                / "proc"
-                / "tseries"
-                / "month_1"
-                / "case.cam.h0a.T.010001-010512.nc",
-                "T",
-                100,
-                5,
-            )
+            _write_ts(Path(tmpdir) / "case.cam.h0a.T.000101-002012.nc",
+                      "T", 1, 20)
+            _write_ts(Path(tmpdir) / "atm" / "proc" / "tseries" / "month_1"
+                      / "case.cam.h0a.T.010001-010412.nc", "T", 100, 5)
 
             syr, eyr = _call(_StubInfo(["T"]), tmpdir, "case", hist_str="cam.h0a")
 
@@ -230,20 +224,10 @@ class AdfInfoClimoYrsTestRoutine(unittest.TestCase):
         """
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            _write_ts(
-                Path(tmpdir)
-                / "atm"
-                / "proc"
-                / "tseries"
-                / "month_1"
-                / "case.cam.h0a.T.000101-002012.nc",
-                "T",
-                1,
-                20,
-            )
-            _write_ts(
-                Path(tmpdir) / "case.cam.h0a.PRECT.010001-010512.nc", "PRECT", 100, 5
-            )
+            _write_ts(Path(tmpdir) / "atm" / "proc" / "tseries" / "month_1"
+                      / "case.cam.h0a.T.000101-002012.nc", "T", 1, 20)
+            _write_ts(Path(tmpdir) / "case.cam.h0a.PRECT.010001-010412.nc",
+                      "PRECT", 100, 5)
 
             syr, eyr = _call(
                 _StubInfo(["T", "PRECT"]), tmpdir, "case", hist_str="cam.h0a"
@@ -262,22 +246,72 @@ class AdfInfoClimoYrsTestRoutine(unittest.TestCase):
         """
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            _write_ts(Path(tmpdir) / "case.cam.h0b.T.010001-010512.nc", "T", 100, 5)
-            _write_ts(
-                Path(tmpdir)
-                / "atm"
-                / "proc"
-                / "tseries"
-                / "month_1"
-                / "case.cam.h0a.T.020001-021012.nc",
-                "T",
-                200,
-                10,
-            )
+            _write_ts(Path(tmpdir) / "case.cam.h0b.T.010001-010412.nc",
+                      "T", 100, 5)
+            _write_ts(Path(tmpdir) / "atm" / "proc" / "tseries" / "month_1"
+                      / "case.cam.h0a.T.020001-020912.nc", "T", 200, 10)
 
             syr, eyr = _call(_StubInfo(["T"]), tmpdir, "case", hist_str="cam.h0a")
 
             self.assertEqual((syr, eyr), (200, 209))
+
+    def test_overlapping_sets_report_full_span(self):
+
+        """
+        Years 1-20 alongside years 1-40, which is what a re-post-processed run
+        leaves behind, must report the whole available span.
+
+        These files cannot be opened together -- the combined time axis would
+        have duplicate times -- and this method runs during ADF setup, so
+        reading the period from the file names rather than the data is what
+        keeps the run alive long enough for the year range in the config file
+        to be honored.
+        """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_ts(Path(tmpdir) / "case.cam.h0a.T.000101-002012.nc",
+                      "T", 1, 20)
+            _write_ts(Path(tmpdir) / "case.cam.h0a.T.000101-004012.nc",
+                      "T", 1, 40)
+
+            syr, eyr = _call(_StubInfo(["T"]), tmpdir, "case",
+                             hist_str="cam.h0a")
+
+            self.assertEqual((syr, eyr), (1, 40))
+
+    def test_partially_overlapping_sets_report_full_span(self):
+
+        """
+        The same, for sets that only partly overlap (years 1-20 alongside
+        years 10-40), which is the layout that used to raise
+        'Resulting object does not have monotonic global indexes'.
+        """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_ts(Path(tmpdir) / "case.cam.h0a.T.000101-002012.nc",
+                      "T", 1, 20)
+            _write_ts(Path(tmpdir) / "case.cam.h0a.T.001001-004012.nc",
+                      "T", 10, 31)
+
+            syr, eyr = _call(_StubInfo(["T"]), tmpdir, "case",
+                             hist_str="cam.h0a")
+
+            self.assertEqual((syr, eyr), (1, 40))
+
+    def test_unreadable_dates_fall_back_to_the_data(self):
+
+        """
+        A directory whose names do not carry the period still has to work,
+        which is what the fallback that opens the files is for.
+        """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_ts(Path(tmpdir) / "case.cam.h0a.T.someperiod.nc", "T", 7, 3)
+
+            syr, eyr = _call(_StubInfo(["T"]), tmpdir, "case",
+                             hist_str="cam.h0a")
+
+            self.assertEqual((syr, eyr), (7, 9))
 
     def test_nested_layout_does_not_flood_the_debug_log(self):
         """
