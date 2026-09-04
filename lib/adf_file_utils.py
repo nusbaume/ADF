@@ -18,6 +18,10 @@ ts_files_need_combining(fils)
     Report whether a set of time series files has to be combined into one.
 ts_file_span(fils)
     Report the period a set of time series files covers, taken together.
+as_hist_str_list(value)
+    Normalize a configured history stream setting to a list.
+pick_hist_str(value, wanted)
+    Choose the one history stream a case should be searched for.
 
 Notes
 -----
@@ -26,6 +30,62 @@ every existing caller.
 """
 
 from pathlib import Path
+
+
+def as_hist_str_list(value):
+    """
+    Normalize a configured history stream setting to a list.
+
+    The ADF holds one stream as a plain string, several as a list, and an
+    empty string when none was configured, so all three have to be accepted.
+    Iterating a plain string would walk its characters instead of its value.
+
+    Parameters
+    ----------
+    value : str or list or None
+        a history stream setting as the ADF stores it
+
+    Returns
+    -------
+    list
+        the streams it names; empty when none were configured
+    """
+    if not value:
+        return []
+    # End if
+    if isinstance(value, str):
+        return [value]
+    # End if
+    return list(value)
+
+
+def pick_hist_str(value, wanted):
+    """
+    Choose the one history stream a case should be searched for.
+
+    Parameters
+    ----------
+    value : str or list or None
+        the case's configured stream(s)
+    wanted : set
+        the streams the caller can use, e.g. ``{"cam.h0", "cam.h0a"}``
+
+    Returns
+    -------
+    str
+        the first configured stream the caller can use, or ``""`` when the
+        case has none.
+
+    Notes
+    -----
+    Every case has to yield exactly one answer.  Callers build a list of these
+    and index it by case number, alongside the case names, file locations and
+    years, so a case that contributed nothing would shift every case after it
+    onto the wrong entry.  An empty string leaves the file search unanchored to
+    a stream, which finds the files whichever stream they are in.
+    """
+    matches = [stream for stream in as_hist_str_list(value) if stream in wanted]
+    return matches[0] if matches else ""
 
 
 def find_ts_files(ts_loc, pattern, recursive=True):

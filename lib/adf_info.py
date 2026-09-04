@@ -401,6 +401,16 @@ class AdfInfo(AdfConfig):
         #Extract cam history files location:
         cam_hist_locs = self.get_cam_info('cam_hist_loc')
 
+        # A history file location is not needed by a case running on pre-made
+        # time series, so it can be absent altogether or given for only some
+        # cases.  Normalize it to one entry per case, as the years above are,
+        # so that it can be indexed by case number and set per case below.
+        if cam_hist_locs is None:
+            cam_hist_locs = [None] * self.__num_cases
+        elif not isinstance(cam_hist_locs, list):
+            cam_hist_locs = [cam_hist_locs] * self.__num_cases
+        # End if
+
         #Get cleaned nested list of hist_str for test case(s) (component.hist_num, eg cam.h0)
         cam_hist_str = self.__cam_climo_info.get('hist_str', None)
 
@@ -467,7 +477,11 @@ class AdfInfo(AdfConfig):
 
             #Check if history file path exists:
             hist_str_case = hist_str[case_idx]
-            if any(cam_hist_locs):
+            # This case's own location, not any case's: with several cases,
+            # some on pre-made time series and some not, asking whether any of
+            # them has one sent a case with none into the search below and
+            # tripped over its empty location.
+            if cam_hist_locs[case_idx]:
                 #Grab first possible hist string, just looking for years of run
                 hist_str_use = hist_str_case[0]
 

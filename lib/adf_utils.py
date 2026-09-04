@@ -1,9 +1,10 @@
-"""                                                                    .
+""".
 Generic computation helper functions
 
 Functions
 ---------
-find_ts_files(), select_ts_files(), ts_files_overlap(), ts_file_span()
+find_ts_files(), select_ts_files(), ts_files_overlap(), ts_file_span(),
+as_hist_str_list(), pick_hist_str()
     re-exported from adf_file_utils; time series file discovery
 load_dataset()
     generalized load dataset method used for plotting/analysis functions
@@ -57,8 +58,15 @@ from adf_base import AdfError
 #tested without importing the scientific stack (see adf_file_utils).  Re-export
 #here so `utils.find_ts_files(...)` keeps working for every existing caller:
 # pylint: disable=unused-import
-from adf_file_utils import (find_ts_files, select_ts_files, ts_files_overlap,
-                            ts_file_span)
+from adf_file_utils import (
+    as_hist_str_list,
+    find_ts_files,
+    pick_hist_str,
+    select_ts_files,
+    ts_files_overlap,
+    ts_file_span,
+)
+
 # pylint: enable=unused-import
 
 import warnings  # use to warn user about missing files.

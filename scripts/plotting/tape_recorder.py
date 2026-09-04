@@ -9,33 +9,6 @@ from pathlib import Path
 import adf_utils as utils
 
 
-def _pick_hist_str(value, substrings):
-    """Return the one history stream to search for a case.
-
-    Returns an empty string when the case has no stream among ``substrings``.
-    Every case has to yield exactly one answer: the lists built from this are
-    indexed by case number, so dropping a case would shift every case after it
-    onto the wrong entry.
-    """
-    matches = [string for string in _as_list(value) if string in substrings]
-    return matches[0] if matches else ""
-
-
-def _as_list(value):
-    """Return a history string setting as a list.
-
-    The ADF holds one stream as a plain string, several as a list, and an
-    empty string when none was configured, so all three have to be accepted.
-    """
-    if not value:
-        return []
-    # End if
-    if isinstance(value, str):
-        return [value]
-    # End if
-    return list(value)
-
-
 def tape_recorder(adfobj):
     """
     Calculate the weighted latitude average for the simulations and 
@@ -79,7 +52,7 @@ def tape_recorder(adfobj):
     # empty string, which makes the search match whichever stream the files
     # are in rather than dropping the case and shifting the rest.
     case_hist_strs = [
-        _pick_hist_str(cam_case_str, substrings) for cam_case_str in cam_hist_strs
+        utils.pick_hist_str(cam_case_str, substrings) for cam_case_str in cam_hist_strs
     ]
 
     #Grab test case climo years
@@ -115,7 +88,7 @@ def tape_recorder(adfobj):
         # several are, and empty when the baseline runs on pre-made time series
         # with no stream given.  It contributes one entry in every case.
         hist_strs = case_hist_strs + [
-            _pick_hist_str(adfobj.hist_string["base_hist_str"], substrings)
+            utils.pick_hist_str(adfobj.hist_string["base_hist_str"], substrings)
         ]
     else:
         hist_strs = case_hist_strs

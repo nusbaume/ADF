@@ -1,6 +1,6 @@
 """
 Collection of python unit tests
-for the history stream choice in "tape_recorder".
+for choosing a case's history stream.
 
 The tape recorder plot builds a list of history streams and then indexes it by
 case number, alongside the case names, time series locations and years.  So the
@@ -11,9 +11,9 @@ read off the wrong entry.  A baseline running on pre-made time series had no
 stream recorded at all, so the plot raised IndexError and could not be used
 against pre-made time series (NCAR/ADF issue #471).
 
-NOTE: these tests import tape_recorder, which pulls in matplotlib and xarray,
-so they are skipped in CI, which installs only PyYAML and pytest.  They run in
-a full ADF environment.
+Both the tape recorder plot and the aerosol and gas tables build such a list,
+so the choice lives in adf_file_utils, which imports nothing but pathlib and
+can therefore be tested in CI.
 """
 
 # +++++++++++++++++++++++
@@ -28,59 +28,48 @@ import os.path
 # Set relevant path variables:
 _CURRDIR = os.path.abspath(os.path.dirname(__file__))
 _ADF_LIB_DIR = os.path.join(_CURRDIR, os.pardir, os.pardir)
-_ADF_SCRIPTS_DIR = os.path.join(
-    _CURRDIR, os.pardir, os.pardir, os.pardir, "scripts", "plotting"
-)
 
-# Add ADF "lib" and plotting script directories to python path:
+# Add ADF "lib" directory to python path:
 sys.path.append(_ADF_LIB_DIR)
-sys.path.append(_ADF_SCRIPTS_DIR)
 
-try:
-    from tape_recorder import _as_list, _pick_hist_str
+from adf_file_utils import as_hist_str_list, pick_hist_str
 
-    _HAS_TAPE_RECORDER = True
-except ImportError:
-    _HAS_TAPE_RECORDER = False
-
-
-# The streams the tape recorder can use, as the script defines them:
+# The streams the tape recorder can use, as that script defines them:
 _SUBSTRINGS = {"cam.h0", "cam.h0a"}
 
 
-@unittest.skipUnless(_HAS_TAPE_RECORDER, "tape_recorder dependencies not available")
-class TapeRecorderHistStrTestRoutine(unittest.TestCase):
+class HistStrSelectionTestRoutine(unittest.TestCase):
     """
     Unit tests for choosing one history stream per case.
     """
 
-    def test_as_list_accepts_what_the_adf_stores(self):
+    def test_as_hist_str_list_accepts_what_the_adf_stores(self):
         """
         The ADF holds one stream as a plain string, several as a list, and an
         empty string when none was configured.  All three have to be accepted:
         iterating a plain string would walk its characters instead.
         """
 
-        self.assertEqual(_as_list("cam.h0"), ["cam.h0"])
-        self.assertEqual(_as_list(["cam.h0", "cam.h1"]), ["cam.h0", "cam.h1"])
-        self.assertEqual(_as_list(""), [])
-        self.assertEqual(_as_list(None), [])
-        self.assertEqual(_as_list([]), [])
+        self.assertEqual(as_hist_str_list("cam.h0"), ["cam.h0"])
+        self.assertEqual(as_hist_str_list(["cam.h0", "cam.h1"]), ["cam.h0", "cam.h1"])
+        self.assertEqual(as_hist_str_list(""), [])
+        self.assertEqual(as_hist_str_list(None), [])
+        self.assertEqual(as_hist_str_list([]), [])
 
     def test_pick_from_a_list_of_streams(self):
         """
         A case with several streams contributes the one the plot can use.
         """
 
-        self.assertEqual(_pick_hist_str(["cam.h1", "cam.h0a"], _SUBSTRINGS), "cam.h0a")
-        self.assertEqual(_pick_hist_str(["cam.h0"], _SUBSTRINGS), "cam.h0")
+        self.assertEqual(pick_hist_str(["cam.h1", "cam.h0a"], _SUBSTRINGS), "cam.h0a")
+        self.assertEqual(pick_hist_str(["cam.h0"], _SUBSTRINGS), "cam.h0")
 
     def test_pick_from_a_plain_string(self):
         """
         One configured stream arrives as a string, not a list of one.
         """
 
-        self.assertEqual(_pick_hist_str("cam.h0", _SUBSTRINGS), "cam.h0")
+        self.assertEqual(pick_hist_str("cam.h0", _SUBSTRINGS), "cam.h0")
 
     def test_no_usable_stream_still_answers(self):
         """
@@ -92,10 +81,10 @@ class TapeRecorderHistStrTestRoutine(unittest.TestCase):
         which is what the search did before any of this was filtered.
         """
 
-        self.assertEqual(_pick_hist_str("", _SUBSTRINGS), "")
-        self.assertEqual(_pick_hist_str([], _SUBSTRINGS), "")
-        self.assertEqual(_pick_hist_str("cam.h3", _SUBSTRINGS), "")
-        self.assertEqual(_pick_hist_str(["cam.h1", "cam.h2"], _SUBSTRINGS), "")
+        self.assertEqual(pick_hist_str("", _SUBSTRINGS), "")
+        self.assertEqual(pick_hist_str([], _SUBSTRINGS), "")
+        self.assertEqual(pick_hist_str("cam.h3", _SUBSTRINGS), "")
+        self.assertEqual(pick_hist_str(["cam.h1", "cam.h2"], _SUBSTRINGS), "")
 
     def test_one_entry_per_case(self):
         """
@@ -105,7 +94,7 @@ class TapeRecorderHistStrTestRoutine(unittest.TestCase):
 
         cases = [["cam.h0a"], ["cam.h3"], "cam.h0", "", ["cam.h1", "cam.h0a"]]
 
-        picked = [_pick_hist_str(case, _SUBSTRINGS) for case in cases]
+        picked = [pick_hist_str(case, _SUBSTRINGS) for case in cases]
 
         self.assertEqual(len(picked), len(cases))
         self.assertEqual(picked, ["cam.h0a", "", "cam.h0", "", "cam.h0a"])
