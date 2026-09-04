@@ -414,6 +414,35 @@ class AdfDiag(AdfWeb):
             return subprocess.run(cmd, shell=False)
         # End def
 
+        def run_pool(commands, label):
+            """Run NCO commands in parallel, reporting each one as it finishes.
+
+            Results are consumed with ``imap_unordered`` rather than ``map`` so
+            that the progress lines appear while the commands are still running.
+            Without them the terminal sits silent for the whole batch, long
+            enough for an ssh session to time out on a large ``diag_var_list``.
+
+            Parameters
+            ----------
+            commands : list
+                NCO commands, each an argument list for :func:`call_ncrcat`.
+            label : str
+                Name of this batch of commands, used in the progress output.
+
+            Returns
+            -------
+            None
+                Writes the files produced by ``commands``.
+            """
+            ntot = len(commands)
+            with mp.Pool(processes=self.num_procs) as mpool:
+                for num, _ in enumerate(mpool.imap_unordered(call_ncrcat, commands), 1):
+                    print(f"\t     {label}: {num} of {ntot} done", flush=True)
+                # End for
+            # End with
+
+        # End def
+
         # Gather the per-case configuration (shared with the GenTS back end):
         cfg = self.get_ts_case_config(baseline=baseline)
         case_names = cfg["case_names"]
@@ -719,17 +748,14 @@ class AdfDiag(AdfWeb):
                 # End variable loop
 
                 # Now run the "ncrcat" subprocesses in parallel:
-                with mp.Pool(processes=self.num_procs) as mpool:
-                    _ = mpool.map(call_ncrcat, list_of_commands)
+                run_pool(list_of_commands, "ncrcat")
 
                 # Run ncatted commands after ncrcat is done
-                with mp.Pool(processes=self.num_procs) as mpool:
-                    _ = mpool.map(call_ncrcat, list_of_ncatted_commands)
+                run_pool(list_of_ncatted_commands, "global attributes")
 
                 # Run ncatted command to remove history attribute
                 # after the global attributes are set
-                with mp.Pool(processes=self.num_procs) as mpool:
-                    _ = mpool.map(call_ncrcat, list_of_hist_commands)
+                run_pool(list_of_hist_commands, "history attribute")
 
                 # Finally, run through the derived variables if applicable
                 if constit_dict:
